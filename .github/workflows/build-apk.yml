@@ -1,4 +1,4 @@
-name: Nova APK Gyartas
+name: Nova APK Gyartas ES Firebase Kulcs
 
 on:
   push:
@@ -22,8 +22,12 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: SHA-1 Kulcs Kinyerese a Firebasehez
-      run: gradle signingReport
+    # EZ A MODUL LEGYÁRTJA NEKÜNK A TITKOS KULCSOT A FELHŐBEN!
+    - name: Hivatalos Android Keystore Generealas
+      run: |
+        keytool -genkey -v -keystore my-release-key.keystore -alias my-key-alias -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=NovaZene, OU=Android, O=Hangfolyam, L=Budapest, S=Pest, C=HU" -storepass android -keypass android
+        echo "A FIREBASE-BE EZT AZ SHA-1 KÓDOT KELL BEMÁSOLNOD:"
+        keytool -list -v -keystore my-release-key.keystore -alias my-key-alias -storepass android -keypass android | grep "SHA1:"
 
     - name: APK epitese
       run: gradle :app:assembleDebug
