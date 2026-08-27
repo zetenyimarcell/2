@@ -100,3 +100,156 @@ fun SmoothMusicApp() {
                 Text(
                     text = "Keresés",
                     fontSize = 32.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Lekerekített, sima (smooth) keresősáv
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { query ->
+                        searchQuery = query
+                        // Ha legalább 3 betűt beír, automatikusan keresünk az interneten
+                        if (query.length >= 3) {
+                            isLoading = true
+                            coroutineScope.launch {
+                                searchResults = searchMusicFromInternet(query)
+                                isLoading = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)),
+                    placeholder = { Text("Előadó, dal vagy album...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        containerColor = Color(0xFF2B2B2B),
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedBorderColor = Color(0xFF1DB954)
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 80.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(searchResults) { song ->
+                            ModernSongCard(song) {
+                                currentlyPlaying = song
+                                exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
+                                exoPlayer.prepare()
+                                exoPlayer.play()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ModernSongCard(song: LiveSong, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF1E1E1E))
+            .clickable { onClick() }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AsyncImage(
+            model = song.coverUrl.replace("100x100", "300x300"), // Jobb minőségű kép kérése
+            contentDescription = "Borító",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(64.dp)
+                .clip(RoundedCornerShape(12.dp))
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = song.artist, color = Color.Gray, fontSize = 14.sp, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+fun ModernPlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
+    Surface(
+        color = Color(0xFF222222),
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
+        shadowElevation = 16.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AsyncImage(
+                model = song.coverUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(50.dp).clip(CircleShape) // Kerek ikon
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = song.title, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1)
+                Text(text = song.artist, fontSize = 12.sp, color = Color.Gray, maxLines = 1)
+            }
+            IconButton(
+                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "Lejátszás/Szünet", tint = Color.White)
+            }
+        }
+    }
+}
+
+// HÁTTÉRSZOLGÁLTATÁS: Valódi kapcsolat az Apple iTunes globális zenei adatbázisával
+suspend fun searchMusicFromInternet(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    val results = mutableListOf<LiveSong>()
+    try {
+        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        val url = URL("https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=30")
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        
+        if (connection.responseCode == 200) {
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            val jsonObject = JSONObject(response)
+            val jsonArray = jsonObject.getJSONArray("results")
+            
+            for (i in 0 until jsonArray.length()) {
+                val item = jsonArray.getJSONObject(i)
+                val previewUrl = item.optString("previewUrl", "")
+                if (previewUrl.isNotEmpty()) {
+                    results.add(
+                        LiveSong(
+                            id = item.optString("trackId"),
+                            title = item.optString("trackName", "Ismeretlen Dal"),
+                            artist = item.optString("artistName", "Ismeretlen Előadó"),
+                            coverUrl = item.optString("artworkUrl100", ""),
+                            streamUrl = previewUrl
+                        )
+                    )
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("ZeneKereso", "Hiba az internetes keresésnél: ${e.message}")
+    }
+    return@withContext results
+}
