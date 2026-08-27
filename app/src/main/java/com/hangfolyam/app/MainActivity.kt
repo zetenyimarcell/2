@@ -143,7 +143,7 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
                             val request = GetCredentialRequest.Builder()
                                 .addCredentialOption(googleIdOption)
                                 .build()
-                            val result = credentialManager.getCredential(request) // Természetes await!
+                            val result = credentialManager.getCredential(context, request) // Természetes await!
 
                             // Token kinyerése
                             val idToken = when (val credential = result.credential) {
