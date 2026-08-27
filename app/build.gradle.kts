@@ -22,6 +22,15 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.4"
     }
+    
+    // EZ A RÉSZ HIÁNYZOTT A SZERVERNEK A JAVA 17-HEZ!
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 }
 
 dependencies {
