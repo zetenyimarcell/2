@@ -1,14 +1,10 @@
 package com.hangfolyam.app
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -19,6 +15,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,173 +32,252 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import androidx.credentials.CredentialManager
-import androidx.credentials.GetCredentialRequest
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
-import com.hangfolyam.app.audio.AudioRecorder
-import com.hangfolyam.app.data.CollectionRepository
-import com.hangfolyam.app.network.RecognitionApi
-import com.hangfolyam.app.network.RecognitionResult
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-data class LiveSong(val id: String, val title: String, val artist: String, val coverUrl: String, val streamUrl: String)
+data class LiveSong(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val coverUrl: String,
+    val streamUrl: String
+)
 
 class MainActivity : ComponentActivity() {
     private val WEB_CLIENT_ID = "592646172227-d2kic3r4aj2pb8p2tijbasnc1ss1uo2s.apps.googleusercontent.com"
-    private lateinit var auth: FirebaseAuth
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        auth = FirebaseAuth.getInstance()
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(background = Color(0xFF0D0D19), surface = Color(0xFF1A1A2E), primary = Color(0xFF1DB954))) {
-                AppRoot(activity = this, clientId = WEB_CLIENT_ID, auth = auth)
+            MaterialTheme(colorScheme = darkColorScheme(
+                background = Color(0xFF0D0D19),
+                surface = Color(0xFF1A1A2E),
+                primary = Color(0xFF1DB954)
+            )) {
+                AppRoot(WEB_CLIENT_ID)
             }
         }
     }
 }
 
 @Composable
-fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
-    var currentScreen by remember { mutableStateOf(if (auth.currentUser != null) "HOME" else "LOGIN") }
-    Crossfade(targetState = currentScreen, animationSpec = tween(500), label = "Transition") { screen ->
-        when (screen) {
-            "LOGIN" -> LoginScreen(clientId, auth, onLoggedIn = { currentScreen = "HOME" }, onPhoneLoginClick = { currentScreen = "PHONE_LOGIN" })
-            "PHONE_LOGIN" -> PhoneLoginScreen(activity, auth, onBack = { currentScreen = "LOGIN" }, onSuccess = { currentScreen = "HOME" })
-            "HOME" -> HomeScreen()
+fun AppRoot(clientId: String) {
+    val context = LocalContext.current
+    val auth = FirebaseAuth.getInstance()
+
+    // Ha már be van jelentkezve, egyből a főoldalra visz
+    if (auth.currentUser != null) {
+        SmoothMusicApp()
+    } else {
+        var currentScreen by remember { mutableStateOf("LOGIN") }
+
+        Crossfade(targetState = currentScreen, animationSpec = tween(500)) { screen ->
+            when (screen) {
+                "LOGIN" -> LoginScreen(
+                    clientId = clientId,
+                    onLoginSuccess = { currentScreen = "HOME" },
+                    onPhoneLoginClick = { currentScreen = "PHONE_LOGIN" }
+                )
+                "PHONE_LOGIN" -> PhoneLoginScreen(
+                    onBack = { currentScreen = "LOGIN" },
+                    onSuccess = { currentScreen = "HOME" }
+                )
+                "HOME" -> SmoothMusicApp()
+            }
         }
     }
 }
 
 @Composable
-fun LoginScreen(clientId: String, auth: FirebaseAuth, onLoggedIn: () -> Unit, onPhoneLoginClick: () -> Unit) {
+fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val coroutineScope = rememberCoroutineScope()
 
-    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF16222A), Color(0xFF3A6073))))) {
-        Column(modifier = Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF0D0D19), Color(0xFF1A1A2E))))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // LOGÓ
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(48.dp))
+            }
+            Spacer(modifier = Modifier.height(24.dp))
             Text("Nova Zene", fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-            Spacer(modifier = Modifier.height(12.dp))
-            Text("A világ zenéje. Egy helyen.", fontSize = 16.sp, color = Color.LightGray)
+            Text("A világ összes zenéje. Egy helyen.", fontSize = 14.sp, color = Color.Gray)
             Spacer(modifier = Modifier.height(64.dp))
 
+            // GOOGLE BEJELENTKEZÉS
             Button(
                 onClick = {
-                    scope.launch {
+                    coroutineScope.launch {
                         try {
                             val credentialManager = CredentialManager.create(context)
-                            val googleIdOption = GetGoogleIdOption.Builder().setFilterByAuthorizedAccounts(false).setServerClientId(clientId).build()
-                            val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
+                            val googleIdOption = GetGoogleIdOption.Builder()
+                                .setFilterByAuthorizedAccounts(false)
+                                .setServerClientId(clientId)
+                                .build()
+                            val request = GetCredentialRequest.Builder()
+                                .addCredentialOption(googleIdOption)
+                                .build()
                             val result = credentialManager.getCredential(context, request)
-                            val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
 
-                            // EZ HIÁNYZOTT EDDIG: valódi Firebase-munkamenet létrehozása
-                            val firebaseCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
-                            auth.signInWithCredential(firebaseCredential).addOnCompleteListener { task ->
-                                if (task.isSuccessful) onLoggedIn()
-                                else Toast.makeText(context, "Firebase hiba: ${task.exception?.message}", Toast.LENGTH_LONG).show()
-                            }
+                            // Firebase-szel hitelesítjük a Google tokent
+                            val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(
+                                null, result.credential.toString()
+                            )
+                            FirebaseAuth.getInstance().signInWithCredential(credential).await()
+                            onLoginSuccess()
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Google hiba: ${e.message}", Toast.LENGTH_LONG).show()
+                            Log.e("GoogleLogin", "Hiba: ${e.message}")
+                            Toast.makeText(context, "Google bejelentkezés sikertelen: ${e.message}", Toast.LENGTH_LONG).show()
                         }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(55.dp),
                 shape = RoundedCornerShape(25.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
-            ) { Text("Folytatás Google-fiókkal", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+            ) {
+                Text("Folytatás Google-fiókkal", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedButton(onClick = onPhoneLoginClick, modifier = Modifier.fillMaxWidth().height(55.dp), shape = RoundedCornerShape(25.dp)) {
-                Text("📱  Belépés telefonszámmal", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
+            // TELEFONSZÁMOS BEJELENTKEZÉS
+            OutlinedButton(
+                onClick = onPhoneLoginClick,
+                modifier = Modifier.fillMaxWidth().height(55.dp),
+                shape = RoundedCornerShape(25.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+            ) {
+                Icon(Icons.Default.Phone, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Belépés Telefonszámmal", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
         }
     }
 }
 
 @Composable
-fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: () -> Unit, onSuccess: () -> Unit) {
+fun PhoneLoginScreen(onBack: () -> Unit, onSuccess: () -> Unit) {
     val context = LocalContext.current
+    val auth = FirebaseAuth.getInstance()
+    val coroutineScope = rememberCoroutineScope()
+
     var phoneNumber by remember { mutableStateOf("") }
-    var smsCode by remember { mutableStateOf("") }
-    var codeSent by remember { mutableStateOf(false) }
     var verificationId by remember { mutableStateOf<String?>(null) }
+    var codeSent by remember { mutableStateOf(false) }
+    var smsCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D0D19)).padding(32.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color(0xFF0D0D19)).padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(if (!codeSent) "Mi a telefonszámod?" else "Írd be az SMS kódot!", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text(
+                if (!codeSent) "Mi a telefonszámod?" else "Írd be az SMS kódot!",
+                color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                if (!codeSent) "Küldünk egy ellenőrző kódot" else "Az SMS-t a Firebase küldi",
+                color = Color.Gray, fontSize = 14.sp
+            )
             Spacer(modifier = Modifier.height(24.dp))
+
             OutlinedTextField(
                 value = if (!codeSent) phoneNumber else smsCode,
                 onValueChange = { if (!codeSent) phoneNumber = it else smsCode = it },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                placeholder = { Text(if (!codeSent) "+36301234567 (nemzetközi formátum)" else "000000") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                keyboardOptions = KeyboardOptions(keyboardType = if (!codeSent) KeyboardType.Phone else KeyboardType.Number),
+                placeholder = { Text(if (!codeSent) "+36 30 123 4567" else "000000") },
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+                singleLine = true,
+                colors = TextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                )
             )
             Spacer(modifier = Modifier.height(24.dp))
-            if (isLoading) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            } else {
-                Button(
-                    onClick = {
-                        if (!codeSent) {
-                            isLoading = true
-                            val options = PhoneAuthOptions.newBuilder(auth)
-                                .setPhoneNumber(phoneNumber)
-                                .setTimeout(60L, TimeUnit.SECONDS)
-                                .setActivity(activity)
-                                .setCallbacks(object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
-                                    override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-                                        isLoading = false
-                                        auth.signInWithCredential(credential).addOnCompleteListener { if (it.isSuccessful) onSuccess() }
-                                    }
-                                    override fun onVerificationFailed(e: FirebaseException) {
-                                        isLoading = false
-                                        Toast.makeText(context, "Hiba: ${e.message}", Toast.LENGTH_LONG).show()
-                                    }
-                                    override fun onCodeSent(id: String, token: PhoneAuthProvider.ForceResendingToken) {
-                                        isLoading = false
-                                        verificationId = id
-                                        codeSent = true
-                                    }
-                                }).build()
-                            PhoneAuthProvider.verifyPhoneNumber(options)
-                        } else {
-                            verificationId?.let { id ->
-                                isLoading = true
-                                val credential = PhoneAuthProvider.getCredential(id, smsCode)
-                                auth.signInWithCredential(credential).addOnCompleteListener { task ->
-                                    isLoading = false
-                                    if (task.isSuccessful) onSuccess()
-                                    else Toast.makeText(context, "Hibás kód: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+
+            Button(
+                onClick = {
+                    if (!codeSent) {
+                        // SMS KÜLDÉSE
+                        isLoading = true
+                        val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+                            override fun onVerificationCompleted(credential: com.google.firebase.auth.PhoneAuthCredential) {
+                                // Auto-verifikáció (egyes telefonoknál)
+                                auth.signInWithCredential(credential).addOnCompleteListener {
+                                    if (it.isSuccessful) onSuccess()
                                 }
                             }
+                            override fun onVerificationFailed(e: com.google.firebase.FirebaseException) {
+                                isLoading = false
+                                Toast.makeText(context, "Hiba: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                            override fun onCodeSent(id: String, token: PhoneAuthProvider.ForceResendingToken) {
+                                verificationId = id
+                                codeSent = true
+                                isLoading = false
+                                Toast.makeText(context, "SMS elküldve! Ellenőrizd a telefonod.", Toast.LENGTH_SHORT).show()
+                            }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp)
-                ) { Text(if (!codeSent) "Kód küldése" else "Belépés") }
+                        val options = PhoneAuthOptions.newBuilder(auth)
+                            .setPhoneNumber(phoneNumber)
+                            .setTimeout(60L, TimeUnit.SECONDS)
+                            .setActivity(context as ComponentActivity)
+                            .setCallbacks(callbacks)
+                            .build()
+                        PhoneAuthProvider.verifyPhoneNumber(options)
+                    } else {
+                        // SMS KÓD ELLENŐRZÉSE
+                        isLoading = true
+                        val credential = PhoneAuthProvider.getCredential(verificationId ?: "", smsCode)
+                        auth.signInWithCredential(credential).addOnCompleteListener { task ->
+                            isLoading = false
+                            if (task.isSuccessful) {
+                                onSuccess()
+                            } else {
+                                Toast.makeText(context, "Hibás kód!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                } else {
+                    Text(if (!codeSent) "Kód küldése" else "Belépés", fontSize = 16.sp)
+                }
             }
             Spacer(modifier = Modifier.height(16.dp))
             TextButton(onClick = onBack) { Text("Vissza", color = Color.Gray) }
@@ -206,266 +285,229 @@ fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: ()
     }
 }
 
+// ========== ZENELEJÁTSZÓ FŐOLDAL ==========
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen() {
+fun SmoothMusicApp() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val coroutineScope = rememberCoroutineScope()
     val exoPlayer = remember { ExoPlayer.Builder(context).build() }
-    val collectionRepo = remember { CollectionRepository() }
-    var tab by remember { mutableStateOf("SEARCH") }
+
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
     var currentlyPlaying by remember { mutableStateOf<LiveSong?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
 
-    fun play(song: LiveSong) {
-        currentlyPlaying = song
-        exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
-        exoPlayer.prepare()
-        exoPlayer.play()
-    }
-
     Scaffold(
         bottomBar = {
-            Column {
-                AnimatedVisibility(visible = currentlyPlaying != null) {
-                    currentlyPlaying?.let { PlayerBar(it, exoPlayer) }
-                }
-                NavigationBar(containerColor = Color(0xFF12121A)) {
-                    NavigationBarItem(selected = tab == "SEARCH", onClick = { tab = "SEARCH" }, icon = { Text("🔍") }, label = { Text("Kereső") })
-                    NavigationBarItem(selected = tab == "RECOGNIZE", onClick = { tab = "RECOGNIZE" }, icon = { Text("🎤") }, label = { Text("Felismerés") })
-                    NavigationBarItem(selected = tab == "COLLECTION", onClick = { tab = "COLLECTION" }, icon = { Text("❤") }, label = { Text("Gyűjtemény") })
-                }
+            AnimatedVisibility(
+                visible = currentlyPlaying != null,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn()
+            ) {
+                currentlyPlaying?.let { ModernPlayerBar(it, exoPlayer) }
             }
         }
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(listOf(Color(0xFF1E1E30), Color(0xFF0D0D19))))) {
-            when (tab) {
-                "SEARCH" -> SearchScreen(onPlay = { play(it) }, onSave = { song -> scope.launch { collectionRepo.add(song) } })
-                "RECOGNIZE" -> RecognizeScreen(onSave = { song -> scope.launch { collectionRepo.add(song) } })
-                "COLLECTION" -> CollectionScreen(repo = collectionRepo, onPlay = { play(it) })
-            }
-        }
-    }
-}
-
-@Composable
-fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
-    val scope = rememberCoroutineScope()
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
-
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("Kereső", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-        Spacer(modifier = Modifier.height(16.dp))
-        OutlinedTextField(
-            value = query,
-            onValueChange = { q ->
-                query = q
-                if (q.length >= 2) {
-                    isLoading = true
-                    scope.launch { results = searchMusicFromInternetFull(q); isLoading = false }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(Color(0xFF1E1E30), Color(0xFF0D0D19))))
+                .padding(paddingValues)
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                Spacer(modifier = Modifier.height(32.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(36.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Nova Zene", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
                 }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Keress bármit...", color = Color.Gray) },
-            singleLine = true
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(results) { song -> SongRow(song, onClick = { onPlay(song) }, onSave = { onSave(song) }) }
-            }
-        }
-    }
-}
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Dupla motor: Deezer + iTunes", fontSize = 13.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.height(20.dp))
 
-@Composable
-fun RecognizeScreen(onSave: (LiveSong) -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var isRecording by remember { mutableStateOf(false) }
-    var isProcessing by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<RecognitionResult?>(null) }
-    var errorText by remember { mutableStateOf<String?>(null) }
-    val recorder = remember { AudioRecorder(context) }
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { query ->
+                        searchQuery = query
+                        if (query.length >= 2) {
+                            isLoading = true
+                            coroutineScope.launch {
+                                searchResults = searchMusicFromInternetFull(query)
+                                isLoading = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)),
+                    placeholder = { Text("Keress bármit a világon...", color = Color.Gray) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray) },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF25253A),
+                        unfocusedContainerColor = Color(0xFF25253A),
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(modifier = Modifier.height(16.dp))
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) errorText = "Mikrofon engedély szükséges."
-    }
-
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("Zenefelismerés", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Tényleges felvételt ismer fel (rádió, hangszóró) —\ndúdolást/éneklést nem tud megbízhatóan azonosítani.", fontSize = 13.sp, color = Color.Gray)
-        Spacer(modifier = Modifier.height(40.dp))
-
-        Button(
-            onClick = {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    return@Button
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 90.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(searchResults) { song ->
+                            ModernSongCard(song) {
+                                currentlyPlaying = song
+                                exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
+                                exoPlayer.prepare()
+                                exoPlayer.play()
+                            }
+                        }
+                    }
                 }
-                result = null; errorText = null; isRecording = true
-                scope.launch {
-                    val file = recorder.start()
-                    delay(6000)
-                    recorder.stop()
-                    isRecording = false; isProcessing = true
-                    val recognized = runCatching { RecognitionApi.recognize(file) }.getOrNull()
-                    isProcessing = false
-                    if (recognized != null) result = recognized
-                    else errorText = "Nem sikerült felismerni. Próbáld hangosabban / közelebbről."
-                }
-            },
-            modifier = Modifier.size(120.dp),
-            shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(containerColor = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary)
-        ) { Text(if (isRecording) "⏺" else "🎤", fontSize = 36.sp) }
-
-        Spacer(modifier = Modifier.height(24.dp))
-        if (isProcessing) CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-        errorText?.let { Text(it, color = Color(0xFFFF6B6B)) }
-        result?.let { r ->
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(r.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-            Text(r.artist, color = Color.LightGray, fontSize = 15.sp)
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = { onSave(LiveSong(id = r.title + r.artist, title = r.title, artist = r.artist, coverUrl = "", streamUrl = "")) }) {
-                Text("Hozzáadás a gyűjteményhez")
             }
         }
     }
 }
 
 @Composable
-fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
-    var songs by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) { songs = repo.getAll(); loading = false }
-
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("Gyűjteményem", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-        Spacer(modifier = Modifier.height(16.dp))
-        if (loading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        } else if (songs.isEmpty()) {
-            Text("Még nincs elmentett szám.", color = Color.Gray)
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(songs) { song -> SongRow(song, onClick = { onPlay(song) }, onSave = null) }
-            }
-        }
-    }
-}
-
-@Composable
-fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
+fun ModernSongCard(song: LiveSong, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xFF202030).copy(alpha = 0.7f)).clickable { onClick() }.padding(10.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFF202030).copy(alpha = 0.7f)).clickable { onClick() }.padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (song.coverUrl.isNotEmpty()) {
-            AsyncImage(model = song.coverUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(60.dp).clip(RoundedCornerShape(14.dp)))
-        } else {
-            Box(modifier = Modifier.size(60.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF33334A)))
-        }
+        AsyncImage(
+            model = song.coverUrl, contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(70.dp).clip(RoundedCornerShape(16.dp))
+        )
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1)
-            Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1)
+            Text(song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1)
+            Text(song.artist, color = Color.LightGray, fontSize = 14.sp, maxLines = 1)
         }
-        if (onSave != null) TextButton(onClick = onSave) { Text("＋", color = MaterialTheme.colorScheme.primary, fontSize = 22.sp) }
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(24.dp))
+        }
     }
 }
 
 @Composable
-fun PlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
-    var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
-    var position by remember { mutableStateOf(0f) }
-    var duration by remember { mutableStateOf(1f) }
-    var volume by remember { mutableStateOf(exoPlayer.volume) }
-    var seeking by remember { mutableStateOf(false) }
-
-    LaunchedEffect(song) {
-        while (true) {
-            if (!seeking) {
-                duration = exoPlayer.duration.coerceAtLeast(1L).toFloat()
-                position = exoPlayer.currentPosition.toFloat()
-            }
-            isPlaying = exoPlayer.isPlaying
-            delay(500)
-        }
-    }
-
-    Surface(color = Color(0xFF1A1A2E).copy(alpha = 0.97f), modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (song.coverUrl.isNotEmpty()) {
-                    AsyncImage(model = song.coverUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(44.dp).clip(CircleShape))
-                    Spacer(modifier = Modifier.width(12.dp))
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(song.title, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp, maxLines = 1)
-                    Text(song.artist, fontSize = 12.sp, color = Color.Gray, maxLines = 1)
-                }
-                IconButton(onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() }) {
-                    Text(if (isPlaying) "⏸" else "▶", color = Color.White, fontSize = 20.sp)
-                }
-            }
-            Slider(
-                value = position, valueRange = 0f..duration,
-                onValueChange = { seeking = true; position = it },
-                onValueChangeFinished = { exoPlayer.seekTo(position.toLong()); seeking = false },
-                colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary)
+fun ModernPlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
+    Surface(
+        color = Color(0xFF1A1A2E).copy(alpha = 0.95f),
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
+            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
+        shadowElevation = 24.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AsyncImage(
+                model = song.coverUrl, contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(54.dp).clip(CircleShape)
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("🔈", fontSize = 12.sp)
-                Slider(
-                    value = volume, onValueChange = { volume = it; exoPlayer.volume = it },
-                    modifier = Modifier.width(100.dp),
-                    colors = SliderDefaults.colors(thumbColor = Color.Gray, activeTrackColor = Color.Gray)
-                )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(song.title, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp, maxLines = 1)
+                Text(song.artist, fontSize = 13.sp, color = Color.Gray, maxLines = 1)
+            }
+            IconButton(
+                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                modifier = Modifier.size(50.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(30.dp))
             }
         }
     }
 }
+
+// ========== DUPLA KERESŐMOTOR: DEEZER + ITUNES ==========
 
 suspend fun searchMusicFromInternetFull(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
     val results = mutableListOf<LiveSong>()
+    val seenTitles = mutableSetOf<String>()
+
     try {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
+
+        // 1. MOTOR: DEEZER (Kiváló magyar lefedettség)
         try {
-            val dzConn = URL("https://api.deezer.com/search?q=$encodedQuery&limit=15").openConnection() as HttpURLConnection
+            val dzUrl = URL("https://api.deezer.com/search?q=$encodedQuery&limit=20")
+            val dzConn = dzUrl.openConnection() as HttpURLConnection
             if (dzConn.responseCode == 200) {
-                val dzArray = JSONObject(dzConn.inputStream.bufferedReader().use { it.readText() }).getJSONArray("data")
+                val dzResp = dzConn.inputStream.bufferedReader().use { it.readText() }
+                val dzArray = JSONObject(dzResp).getJSONArray("data")
                 for (i in 0 until dzArray.length()) {
                     val item = dzArray.getJSONObject(i)
                     val previewUrl = item.optString("preview", "")
-                    if (previewUrl.isNotEmpty()) {
-                        results.add(LiveSong("dz_" + item.optString("id"), item.optString("title"), item.getJSONObject("artist").optString("name"), item.getJSONObject("album").optString("cover_medium", ""), previewUrl))
+                    val title = item.optString("title", "")
+                    if (previewUrl.isNotEmpty() && !seenTitles.contains(title.lowercase())) {
+                        seenTitles.add(title.lowercase())
+                        results.add(
+                            LiveSong(
+                                id = item.optString("id"),
+                                title = title,
+                                artist = item.getJSONObject("artist").optString("name", ""),
+                                coverUrl = item.getJSONObject("album").optString("cover_medium", ""),
+                                streamUrl = previewUrl
+                            )
+                        )
                     }
                 }
             }
         } catch (e: Exception) { Log.e("Deezer", "Hiba: ${e.message}") }
+
+        // 2. MOTOR: APPLE ITUNES (Globális adatbázis, magyar régió)
         try {
-            val itConn = URL("https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=15&country=HU").openConnection() as HttpURLConnection
+            val itUrl = URL("https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=20&country=HU")
+            val itConn = itUrl.openConnection() as HttpURLConnection
             if (itConn.responseCode == 200) {
-                val itArray = JSONObject(itConn.inputStream.bufferedReader().use { it.readText() }).getJSONArray("results")
+                val itResp = itConn.inputStream.bufferedReader().use { it.readText() }
+                val itArray = JSONObject(itResp).getJSONArray("results")
                 for (i in 0 until itArray.length()) {
                     val item = itArray.getJSONObject(i)
                     val previewUrl = item.optString("previewUrl", "")
                     val title = item.optString("trackName", "")
-                    if (previewUrl.isNotEmpty() && results.none { it.title.equals(title, ignoreCase = true) }) {
-                        results.add(LiveSong("it_" + item.optString("trackId"), title, item.optString("artistName"), item.optString("artworkUrl100", "").replace("100x100", "300x300"), previewUrl))
+                    if (previewUrl.isNotEmpty() && !seenTitles.contains(title.lowercase())) {
+                        seenTitles.add(title.lowercase())
+                        results.add(
+                            LiveSong(
+                                id = item.optString("trackId"),
+                                title = title,
+                                artist = item.optString("artistName", ""),
+                                coverUrl = item.optString("artworkUrl100", "").replace("100x100", "300x300"),
+                                streamUrl = previewUrl
+                            )
+                        )
                     }
                 }
             }
         } catch (e: Exception) { Log.e("iTunes", "Hiba: ${e.message}") }
-    } catch (e: Exception) { Log.e("ZeneKereso", "Fő hiba: ${e.message}") }
+
+    } catch (e: Exception) {
+        Log.e("ZeneKereso", "Fő hiba: ${e.message}")
+    }
     return@withContext results
 }
