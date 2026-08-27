@@ -1,37 +1,28 @@
-name: Nova APK Gyartas ES Firebase Kulcs
-
+name: Nova APK Gyartas
 on:
   push:
     branches: [ "main", "master" ]
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
     - name: Kod lekerese
       uses: actions/checkout@v4
-
     - name: Java JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
-
     - name: Gradle beallitasa
       uses: gradle/actions/setup-gradle@v3
       with:
-        gradle-version: '8.4'
-
-    # EZ A MODUL LEGYÁRTJA NEKÜNK A TITKOS KULCSOT A FELHŐBEN!
-    - name: Hivatalos Android Keystore Generealas
-      run: |
-        keytool -genkey -v -keystore my-release-key.keystore -alias my-key-alias -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=NovaZene, OU=Android, O=Hangfolyam, L=Budapest, S=Pest, C=HU" -storepass android -keypass android
-        echo "A FIREBASE-BE EZT AZ SHA-1 KÓDOT KELL BEMÁSOLNOD:"
-        keytool -list -v -keystore my-release-key.keystore -alias my-key-alias -storepass android -keypass android | grep "SHA1:"
-
-    - name: APK epitese
+        gradle-version: '8.7'
+    - name: Allando keystore visszaallitasa
+      run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore
+    - name: APK epitese (alairva az allando kulccsal)
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
       run: gradle :app:assembleDebug
-
     - name: Letoltes letrehozasa
       uses: actions/upload-artifact@v4
       with:
