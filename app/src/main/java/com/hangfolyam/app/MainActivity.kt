@@ -37,7 +37,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
-import androidx.credentials.GetCredentialResponse
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
@@ -46,6 +45,7 @@ import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -80,7 +80,6 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AppRoot(clientId: String) {
-    val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
 
     if (auth.currentUser != null) {
@@ -109,12 +108,11 @@ fun AppRoot(clientId: String) {
 fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick: () -> Unit) {
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
+    val coroutineScope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF0D0D19), Color(0xFF1A1A2E))))
+        modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0D0D19), Color(0xFF1A1A2E))))
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(32.dp),
@@ -122,9 +120,7 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                modifier = Modifier.size(80.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(48.dp))
@@ -134,10 +130,9 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
             Text("A világ összes zenéje. Egy helyen.", fontSize = 14.sp, color = Color.Gray)
             Spacer(modifier = Modifier.height(64.dp))
 
-            // ===== GOOGLE BEJELENTKEZÉS - JAVÍTOTT VÁLTOZAT =====
             Button(
                 onClick = {
-                    if (!isLoading) {
+                    coroutineScope.launch {
                         isLoading = true
                         try {
                             val credentialManager = CredentialManager.create(context)
@@ -148,31 +143,22 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
                             val request = GetCredentialRequest.Builder()
                                 .addCredentialOption(googleIdOption)
                                 .build()
-                            credentialManager.getCredential(context, request)
-                                .addOnSuccessListener { result ->
-                                    val idToken = extractGoogleIdToken(result)
-                                    if (idToken != null) {
-                                        val firebaseCredential = GoogleAuthProvider.getCredential(idToken, null)
-                                        auth.signInWithCredential(firebaseCredential)
-                                            .addOnSuccessListener {
-                                                Toast.makeText(context, "Sikeres belépés!", Toast.LENGTH_SHORT).show()
-                                                onLoginSuccess()
-                                            }
-                                            .addOnFailureListener { e ->
-                                                Toast.makeText(context, "Firebase hiba: ${e.message}", Toast.LENGTH_LONG).show()
-                                                isLoading = false
-                                            }
-                                    } else {
-                                        Toast.makeText(context, "Nem sikerült a token lekérése", Toast.LENGTH_LONG).show()
-                                        isLoading = false
-                                    }
-                                }
-                                .addOnFailureListener { e ->
-                                    Toast.makeText(context, "Google hiba: ${e.message}", Toast.LENGTH_LONG).show()
-                                    isLoading = false
-                                }
+                            val result = credentialManager.getCredential(request) // Természetes await!
+
+                            // Token kinyerése
+                            val idToken = when (val credential = result.credential) {
+                                is GoogleIdTokenCredential -> credential.idToken
+                                else -> GoogleIdTokenCredential.createFrom(credential.data).idToken
+                            }
+
+                            // Firebase hitelesítés
+                            val firebaseCredential = GoogleAuthProvider.getCredential(idToken, null)
+                            auth.signInWithCredential(firebaseCredential).await()
+                            onLoginSuccess()
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Hiba: ${e.message}", Toast.LENGTH_LONG).show()
+                            Log.e("GoogleLogin", "Hiba: ${e.message}")
+                            Toast.makeText(context, "Google hiba: ${e.message}", Toast.LENGTH_LONG).show()
+                        } finally {
                             isLoading = false
                         }
                     }
@@ -200,18 +186,6 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Belépés Telefonszámmal", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
-        }
-    }
-}
-
-// Segédfüggvény a Google token kinyerésére
-private fun extractGoogleIdToken(result: GetCredentialResponse): String? {
-    return when (val credential = result.credential) {
-        is GoogleIdTokenCredential -> credential.idToken
-        else -> credential?.type?.let { type ->
-            if (type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                GoogleIdTokenCredential.createFrom(credential.data).idToken
-            } else null
         }
     }
 }
@@ -250,10 +224,7 @@ fun PhoneLoginScreen(onBack: () -> Unit, onSuccess: () -> Unit) {
                 placeholder = { Text(if (!codeSent) "+36 30 123 4567" else "000000") },
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
                 singleLine = true,
-                colors = TextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                )
+                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
             )
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -332,27 +303,18 @@ fun SmoothMusicApp() {
 
     Scaffold(
         bottomBar = {
-            AnimatedVisibility(
-                visible = currentlyPlaying != null,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn()
-            ) {
+            AnimatedVisibility(visible = currentlyPlaying != null, enter = slideInVertically(initialOffsetY = { it }) + fadeIn()) {
                 currentlyPlaying?.let { ModernPlayerBar(it, exoPlayer) }
             }
         }
     ) { paddingValues ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(listOf(Color(0xFF1E1E30), Color(0xFF0D0D19))))
-                .padding(paddingValues)
+            modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1E1E30), Color(0xFF0D0D19)))).padding(paddingValues)
         ) {
             Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                 Spacer(modifier = Modifier.height(32.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(24.dp))
                     }
                     Spacer(modifier = Modifier.width(12.dp))
@@ -394,11 +356,7 @@ fun SmoothMusicApp() {
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 90.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 90.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(searchResults) { song ->
                             ModernSongCard(song) {
                                 currentlyPlaying = song
@@ -417,24 +375,16 @@ fun SmoothMusicApp() {
 @Composable
 fun ModernSongCard(song: LiveSong, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-            .background(Color(0xFF202030).copy(alpha = 0.7f)).clickable { onClick() }.padding(10.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color(0xFF202030).copy(alpha = 0.7f)).clickable { onClick() }.padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AsyncImage(
-            model = song.coverUrl, contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(70.dp).clip(RoundedCornerShape(16.dp))
-        )
+        AsyncImage(model = song.coverUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(70.dp).clip(RoundedCornerShape(16.dp)))
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1)
             Text(song.artist, color = Color.LightGray, fontSize = 14.sp, maxLines = 1)
         }
-        IconButton(
-            onClick = onClick,
-            modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
-        ) {
+        IconButton(onClick = onClick, modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.primary, CircleShape)) {
             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(24.dp))
         }
     }
@@ -442,30 +392,15 @@ fun ModernSongCard(song: LiveSong, onClick: () -> Unit) {
 
 @Composable
 fun ModernPlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
-    Surface(
-        color = Color(0xFF1A1A2E).copy(alpha = 0.95f),
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding()
-            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
-        shadowElevation = 24.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AsyncImage(
-                model = song.coverUrl, contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(54.dp).clip(CircleShape)
-            )
+    Surface(color = Color(0xFF1A1A2E).copy(alpha = 0.95f), modifier = Modifier.fillMaxWidth().navigationBarsPadding().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)), shadowElevation = 24.dp) {
+        Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(model = song.coverUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(54.dp).clip(CircleShape))
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(song.title, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp, maxLines = 1)
                 Text(song.artist, fontSize = 13.sp, color = Color.Gray, maxLines = 1)
             }
-            IconButton(
-                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                modifier = Modifier.size(50.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
-            ) {
+            IconButton(onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() }, modifier = Modifier.size(50.dp).background(MaterialTheme.colorScheme.primary, CircleShape)) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(30.dp))
             }
         }
@@ -481,7 +416,6 @@ suspend fun searchMusicFromInternetFull(query: String): List<LiveSong> = withCon
     try {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
 
-        // 1. MOTOR: DEEZER
         try {
             val dzUrl = URL("https://api.deezer.com/search?q=$encodedQuery&limit=20")
             val dzConn = dzUrl.openConnection() as HttpURLConnection
@@ -508,7 +442,6 @@ suspend fun searchMusicFromInternetFull(query: String): List<LiveSong> = withCon
             }
         } catch (e: Exception) { Log.e("Deezer", "Hiba: ${e.message}") }
 
-        // 2. MOTOR: APPLE ITUNES
         try {
             val itUrl = URL("https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=20&country=HU")
             val itConn = itUrl.openConnection() as HttpURLConnection
