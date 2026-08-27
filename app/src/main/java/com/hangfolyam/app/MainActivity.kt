@@ -83,7 +83,7 @@ fun LoginScreen(clientId: String, error: String?, onLoginSuccess: () -> Unit, on
                     credentialManager.getCredential(context, request)
                     onLoginSuccess() 
                 } catch (e: Exception) {
-                    onError("Egyelőre csak tesztelőként tudsz belépni. A Google belépéshez hiányzik az SHA-1 kulcs a Firebase-ből!")
+                    onError("Egyelőre csak tesztelőként tudsz belépni. A Google belépéshez hiányzik egy biztonsági kulcs!")
                 }
             }
         }) {
@@ -92,10 +92,10 @@ fun LoginScreen(clientId: String, error: String?, onLoginSuccess: () -> Unit, on
 
         if (error != null) {
             Spacer(modifier = Modifier.height(16.dp))
-            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedButton(onClick = { onLoginSuccess() }) {
-                Text("Belépés tesztelőként (kód megtekintése)")
+                Text("Belépés tesztelőként (felület megtekintése)")
             }
         }
     }
@@ -104,7 +104,11 @@ fun LoginScreen(clientId: String, error: String?, onLoginSuccess: () -> Unit, on
 @Composable
 fun MainScreenWithNavigation() {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val exoPlayer = remember { ExoPlayer.Builder(LocalContext.current).build() }
+    
+    // ITT A JAVÍTÁS: A környezetet KÍVÜL kell lekérni a memóriablokkból!
+    val context = LocalContext.current 
+    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
+    
     var currentlyPlaying by remember { mutableStateOf<Song?>(null) }
     
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
