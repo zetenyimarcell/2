@@ -1,6 +1,7 @@
 package com.hangfolyam.app
 
 import android.os.Bundle
+import android.util.Log // <-- EZ A SOR HIÁNYZOTT AZ ELŐBB!
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
@@ -39,7 +40,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-// A valódi, internetes zene modellje
 data class LiveSong(
     val id: String,
     val title: String,
@@ -52,11 +52,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            // Modern, mélysötét téma elegáns felülettel
             MaterialTheme(colorScheme = darkColorScheme(
                 background = Color(0xFF121212),
                 surface = Color(0xFF1E1E1E),
-                primary = Color(0xFF1DB954) // Kellemes, modern zöld akcentus
+                primary = Color(0xFF1DB954) 
             )) {
                 SmoothMusicApp()
             }
@@ -106,12 +105,10 @@ fun SmoothMusicApp() {
                 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Lekerekített, sima (smooth) keresősáv
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { query ->
                         searchQuery = query
-                        // Ha legalább 3 betűt beír, automatikusan keresünk az interneten
                         if (query.length >= 3) {
                             isLoading = true
                             coroutineScope.launch {
@@ -170,7 +167,7 @@ fun ModernSongCard(song: LiveSong, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(
-            model = song.coverUrl.replace("100x100", "300x300"), // Jobb minőségű kép kérése
+            model = song.coverUrl.replace("100x100", "300x300"),
             contentDescription = "Borító",
             contentScale = ContentScale.Crop,
             modifier = Modifier
@@ -201,7 +198,7 @@ fun ModernPlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
                 model = song.coverUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(50.dp).clip(CircleShape) // Kerek ikon
+                modifier = Modifier.size(50.dp).clip(CircleShape)
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -218,7 +215,6 @@ fun ModernPlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
     }
 }
 
-// HÁTTÉRSZOLGÁLTATÁS: Valódi kapcsolat az Apple iTunes globális zenei adatbázisával
 suspend fun searchMusicFromInternet(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
     val results = mutableListOf<LiveSong>()
     try {
