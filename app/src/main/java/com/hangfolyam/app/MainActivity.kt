@@ -37,14 +37,16 @@ import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetCredentialResponse
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -81,7 +83,6 @@ fun AppRoot(clientId: String) {
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
 
-    // Ha már be van jelentkezve, egyből a főoldalra visz
     if (auth.currentUser != null) {
         SmoothMusicApp()
     } else {
@@ -107,7 +108,8 @@ fun AppRoot(clientId: String) {
 @Composable
 fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick: () -> Unit) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
+    val auth = FirebaseAuth.getInstance()
+    var isLoading by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -119,7 +121,6 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // LOGÓ
             Box(
                 modifier = Modifier
                     .size(80.dp)
@@ -133,10 +134,11 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
             Text("A világ összes zenéje. Egy helyen.", fontSize = 14.sp, color = Color.Gray)
             Spacer(modifier = Modifier.height(64.dp))
 
-            // GOOGLE BEJELENTKEZÉS
+            // ===== GOOGLE BEJELENTKEZÉS - JAVÍTOTT VÁLTOZAT =====
             Button(
                 onClick = {
-                    coroutineScope.launch {
+                    if (!isLoading) {
+                        isLoading = true
                         try {
                             val credentialManager = CredentialManager.create(context)
                             val googleIdOption = GetGoogleIdOption.Builder()
@@ -146,17 +148,32 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
                             val request = GetCredentialRequest.Builder()
                                 .addCredentialOption(googleIdOption)
                                 .build()
-                            val result = credentialManager.getCredential(context, request)
-
-                            // Firebase-szel hitelesítjük a Google tokent
-                            val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(
-                                null, result.credential.toString()
-                            )
-                            FirebaseAuth.getInstance().signInWithCredential(credential).await()
-                            onLoginSuccess()
+                            credentialManager.getCredential(context, request)
+                                .addOnSuccessListener { result ->
+                                    val idToken = extractGoogleIdToken(result)
+                                    if (idToken != null) {
+                                        val firebaseCredential = GoogleAuthProvider.getCredential(idToken, null)
+                                        auth.signInWithCredential(firebaseCredential)
+                                            .addOnSuccessListener {
+                                                Toast.makeText(context, "Sikeres belépés!", Toast.LENGTH_SHORT).show()
+                                                onLoginSuccess()
+                                            }
+                                            .addOnFailureListener { e ->
+                                                Toast.makeText(context, "Firebase hiba: ${e.message}", Toast.LENGTH_LONG).show()
+                                                isLoading = false
+                                            }
+                                    } else {
+                                        Toast.makeText(context, "Nem sikerült a token lekérése", Toast.LENGTH_LONG).show()
+                                        isLoading = false
+                                    }
+                                }
+                                .addOnFailureListener { e ->
+                                    Toast.makeText(context, "Google hiba: ${e.message}", Toast.LENGTH_LONG).show()
+                                    isLoading = false
+                                }
                         } catch (e: Exception) {
-                            Log.e("GoogleLogin", "Hiba: ${e.message}")
-                            Toast.makeText(context, "Google bejelentkezés sikertelen: ${e.message}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Hiba: ${e.message}", Toast.LENGTH_LONG).show()
+                            isLoading = false
                         }
                     }
                 },
@@ -164,12 +181,15 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
                 shape = RoundedCornerShape(25.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
             ) {
-                Text("Folytatás Google-fiókkal", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black, strokeWidth = 2.dp)
+                } else {
+                    Text("Folytatás Google-fiókkal", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // TELEFONSZÁMOS BEJELENTKEZÉS
             OutlinedButton(
                 onClick = onPhoneLoginClick,
                 modifier = Modifier.fillMaxWidth().height(55.dp),
@@ -184,11 +204,22 @@ fun LoginScreen(clientId: String, onLoginSuccess: () -> Unit, onPhoneLoginClick:
     }
 }
 
+// Segédfüggvény a Google token kinyerésére
+private fun extractGoogleIdToken(result: GetCredentialResponse): String? {
+    return when (val credential = result.credential) {
+        is GoogleIdTokenCredential -> credential.idToken
+        else -> credential?.type?.let { type ->
+            if (type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                GoogleIdTokenCredential.createFrom(credential.data).idToken
+            } else null
+        }
+    }
+}
+
 @Composable
 fun PhoneLoginScreen(onBack: () -> Unit, onSuccess: () -> Unit) {
     val context = LocalContext.current
     val auth = FirebaseAuth.getInstance()
-    val coroutineScope = rememberCoroutineScope()
 
     var phoneNumber by remember { mutableStateOf("") }
     var verificationId by remember { mutableStateOf<String?>(null) }
@@ -229,13 +260,12 @@ fun PhoneLoginScreen(onBack: () -> Unit, onSuccess: () -> Unit) {
             Button(
                 onClick = {
                     if (!codeSent) {
-                        // SMS KÜLDÉSE
                         isLoading = true
                         val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
                             override fun onVerificationCompleted(credential: com.google.firebase.auth.PhoneAuthCredential) {
-                                // Auto-verifikáció (egyes telefonoknál)
                                 auth.signInWithCredential(credential).addOnCompleteListener {
                                     if (it.isSuccessful) onSuccess()
+                                    isLoading = false
                                 }
                             }
                             override fun onVerificationFailed(e: com.google.firebase.FirebaseException) {
@@ -246,7 +276,7 @@ fun PhoneLoginScreen(onBack: () -> Unit, onSuccess: () -> Unit) {
                                 verificationId = id
                                 codeSent = true
                                 isLoading = false
-                                Toast.makeText(context, "SMS elküldve! Ellenőrizd a telefonod.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "SMS elküldve!", Toast.LENGTH_SHORT).show()
                             }
                         }
                         val options = PhoneAuthOptions.newBuilder(auth)
@@ -257,7 +287,6 @@ fun PhoneLoginScreen(onBack: () -> Unit, onSuccess: () -> Unit) {
                             .build()
                         PhoneAuthProvider.verifyPhoneNumber(options)
                     } else {
-                        // SMS KÓD ELLENŐRZÉSE
                         isLoading = true
                         val credential = PhoneAuthProvider.getCredential(verificationId ?: "", smsCode)
                         auth.signInWithCredential(credential).addOnCompleteListener { task ->
@@ -321,7 +350,7 @@ fun SmoothMusicApp() {
                 Spacer(modifier = Modifier.height(32.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        modifier = Modifier.size(36.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+                        modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(24.dp))
@@ -452,7 +481,7 @@ suspend fun searchMusicFromInternetFull(query: String): List<LiveSong> = withCon
     try {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
 
-        // 1. MOTOR: DEEZER (Kiváló magyar lefedettség)
+        // 1. MOTOR: DEEZER
         try {
             val dzUrl = URL("https://api.deezer.com/search?q=$encodedQuery&limit=20")
             val dzConn = dzUrl.openConnection() as HttpURLConnection
@@ -479,7 +508,7 @@ suspend fun searchMusicFromInternetFull(query: String): List<LiveSong> = withCon
             }
         } catch (e: Exception) { Log.e("Deezer", "Hiba: ${e.message}") }
 
-        // 2. MOTOR: APPLE ITUNES (Globális adatbázis, magyar régió)
+        // 2. MOTOR: APPLE ITUNES
         try {
             val itUrl = URL("https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=20&country=HU")
             val itConn = itUrl.openConnection() as HttpURLConnection
