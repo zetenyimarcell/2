@@ -19,8 +19,9 @@ jobs:
 
     - name: Gradle beallitasa
       uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: '8.4'
+
+    - name: SHA-1 Kulcs Kinyerese a Firebasehez
+      run: gradle signingReport
 
     - name: APK epitese
       run: gradle :app:assembleDebug
