@@ -39,11 +39,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -86,34 +84,6 @@ data class UpdateInfo(
     val apkUrl: String,
     val releaseNotes: String
 )
-
-// ========== PLAYER VIEWMODEL ==========
-class PlayerViewModel : ViewModel() {
-    var player: ExoPlayer? = null
-        private set
-
-    fun initPlayer(context: Context) {
-        if (player == null) {
-            player = ExoPlayer.Builder(context.applicationContext).build()
-        }
-    }
-
-    fun playAudio(url: String) {
-        player?.apply {
-            stop()
-            clearMediaItems()
-            setMediaItem(MediaItem.fromUri(url))
-            prepare()
-            play()
-        }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        player?.release()
-        player = null
-    }
-}
 
 // ========== YOUTUBE / PIPED TELJES AUDIO MOTOR ==========
 suspend fun fetchFullYoutubeAudioUrl(artist: String, title: String): String = withContext(Dispatchers.IO) {
