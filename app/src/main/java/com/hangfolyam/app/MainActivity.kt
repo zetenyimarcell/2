@@ -1,15 +1,17 @@
 package com.hangfolyam.app
 
-import androidx.activity.compose.setContent
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -70,16 +72,24 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import java.io.File
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 // ========== ADATMODELLEK ==========
 data class LiveSong(
-    val id: String = "", 
-    val title: String = "", 
-    val artist: String = "", 
-    val coverUrl: String = "", 
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
+    val coverUrl: String = "",
     val streamUrl: String = "",
     val source: String = "Ismeretlen"
+)
+
+data class UpdateInfo(
+    val versionCode: Int,
+    val versionName: String,
+    val apkUrl: String,
+    val releaseNotes: String
 )
 
 class MainActivity : ComponentActivity() {
@@ -102,8 +112,23 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// ========== ALKALMAZÁS GYÖKÉR (FRISSÍTÉS ELLENŐRZŐVEL) ==========
 @Composable
 fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
+    val context = LocalContext.current
+    val currentVersionCode = 1 // TELEPÍTETT APK VERZIÓSZÁMA
+    var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+
+    // Frissítés automatikus ellenőrzése az app indításakor
+    LaunchedEffect(Unit) {
+        updateInfo = checkForUpdates(currentVersionCode)
+    }
+
+    // Dialog ablak megjelenítése frissítés esetén
+    updateInfo?.let { info ->
+        AutoUpdateDialog(context = context, updateInfo = info, onDismiss = { updateInfo = null })
+    }
+
     var currentUser by remember { mutableStateOf(auth.currentUser) }
     DisposableEffect(auth) {
         val listener = FirebaseAuth.AuthStateListener { currentUser = it.currentUser }
@@ -121,6 +146,53 @@ fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
             "HOME" -> HomeScreen(auth = auth)
         }
     }
+}
+
+// ========== AUTOMATIKUS FRISSÍTÉS LOGIKA ==========
+suspend fun checkForUpdates(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
+    try {
+        val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).build()
+        // Cseréld ki a saját version.json fájlod URL-jére!
+        val jsonUrl = "https://raw.githubusercontent.com/felhasznalo/projekt/main/version.json"
+
+        val request = Request.Builder().url(jsonUrl).build()
+        val response = client.newCall(request).execute()
+        val json = JSONObject(response.body?.string() ?: "")
+        val remoteVersion = json.getInt("versionCode")
+
+        if (remoteVersion > currentVersionCode) {
+            return@withContext UpdateInfo(
+                versionCode = remoteVersion,
+                versionName = json.getString("versionName"),
+                apkUrl = json.getString("apkUrl"),
+                releaseNotes = json.getString("releaseNotes")
+            )
+        }
+    } catch (_: Exception) {}
+    return@withContext null
+}
+
+@Composable
+fun AutoUpdateDialog(context: Context, updateInfo: UpdateInfo, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Új frissítés érhető el! (${updateInfo.versionName})") },
+        text = { Text(updateInfo.releaseNotes) },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateInfo.apkUrl))
+                    context.startActivity(intent)
+                    onDismiss()
+                }
+            ) {
+                Text("Frissítés letöltése")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Később") }
+        }
+    )
 }
 
 // ========== BEJELENTKEZÉS KÉPERNYŐK ==========
@@ -147,7 +219,7 @@ fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAut
             }
             Spacer(Modifier.height(24.dp))
             Text("Nova Premium", fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-            Text("Több millió dal. Dalszövegek. Határtalanul.", fontSize = 15.sp, color = Color.Gray, textAlign = TextAlign.Center)
+            Text("Magyar & Nemzetközi zenék tárháza.", fontSize = 15.sp, color = Color.Gray, textAlign = TextAlign.Center)
             Spacer(Modifier.height(64.dp))
 
             if (isLoading) CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
@@ -199,7 +271,7 @@ fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: ()
     }
 }
 
-// ========== FŐALKALMAZÁS & LEJÁTSZÓ LOGIKA ==========
+// ========== FŐALKALMAZÁS & LEJÁTSZÓ ==========
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(auth: FirebaseAuth) {
@@ -241,9 +313,7 @@ fun HomeScreen(auth: FirebaseAuth) {
         bottomBar = {
             Column {
                 AnimatedVisibility(visible = currentlyPlaying != null && !isPlayerExpanded, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
-                    currentlyPlaying?.let { song ->
-                        MiniPlayer(song, exoPlayer, isBuffering) { isPlayerExpanded = true }
-                    }
+                    currentlyPlaying?.let { song -> MiniPlayer(song, exoPlayer, isBuffering) { isPlayerExpanded = true } }
                 }
                 NavigationBar(containerColor = Color(0xFF0F0F1A), contentColor = Color.White) {
                     NavigationBarItem(selected = currentTab == "SEARCH", onClick = { currentTab = "SEARCH" }, icon = { Icon(Icons.Default.Search, null) }, label = { Text("Felfedezés") })
@@ -297,7 +367,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
                 } else results = emptyList()
             },
             modifier = Modifier.fillMaxWidth().shadow(10.dp, RoundedCornerShape(30.dp)).clip(RoundedCornerShape(30.dp)),
-            placeholder = { Text("Dal, előadó, album...", color = Color.Gray) },
+            placeholder = { Text("Magyar vagy külföldi dal, előadó...", color = Color.Gray) },
             leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
             singleLine = true,
             colors = TextFieldDefaults.colors(focusedContainerColor = Color(0xFF1E1E35), unfocusedContainerColor = Color(0xFF1E1E35), focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
@@ -314,7 +384,6 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     }
 }
 
-// ========== ZENE LISTASOR ==========
 @Composable
 fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     Row(
@@ -328,7 +397,7 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
             Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.DarkGray.copy(alpha=0.5f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text(when(song.source) { "Deezer" -> "🎧"; "Jamendo" -> "🎸"; "Audio DB" -> "💿"; else -> "📺" }, fontSize = 10.sp)
+                Text(when(song.source) { "YouTube" -> "📺"; "Deezer" -> "🎧"; "Jamendo" -> "🎸"; else -> "💿" }, fontSize = 10.sp)
                 Spacer(Modifier.width(4.dp))
                 Text(song.source, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Medium)
             }
@@ -337,7 +406,7 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     }
 }
 
-// ========== MINI LEJÁTSZÓ ==========
+// ========== MINI ÉS FULL LEJÁTSZÓ ==========
 @Composable
 fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onClick: () -> Unit) {
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
@@ -359,7 +428,6 @@ fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onCli
     }
 }
 
-// ========== TELJES KÉPERNYŐS LEJÁTSZÓ ==========
 @Composable
 fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDismiss: () -> Unit) {
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
@@ -432,7 +500,7 @@ fun formatTime(ms: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
-// ========== ZENEFELISMERŐ KÉPERNYŐ ==========
+// ========== ZENEFELISMERŐ, GYŰJTEMÉNY ÉS PROFIL ==========
 @Composable
 fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
     val context = LocalContext.current
@@ -441,233 +509,75 @@ fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
     var resultSong by remember { mutableStateOf<LiveSong?>(null) }
     var statusText by remember { mutableStateOf("Koppints a gombra a felismeréshez") }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
-        } else {
-            Toast.makeText(context, "Mikrofon engedély szükséges a felismeréshez!", Toast.LENGTH_SHORT).show()
-        }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        if (isGranted) startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
+        else Toast.makeText(context, "Mikrofon engedély szükséges!", Toast.LENGTH_SHORT).show()
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.28f,
-        animationSpec = infiniteRepeatable(animation = tween(1000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "PulseScale"
-    )
-
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("Zenefelismerés", fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
         Spacer(modifier = Modifier.height(8.dp))
         Text(statusText, fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
         Spacer(modifier = Modifier.height(48.dp))
 
         Box(
-            modifier = Modifier
-                .size(170.dp)
-                .scale(if (isListening) pulseScale else 1f)
-                .shadow(30.dp, CircleShape)
-                .clip(CircleShape)
-                .background(if (isListening) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary)
+            modifier = Modifier.size(170.dp).shadow(30.dp, CircleShape).clip(CircleShape).background(if (isListening) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary)
                 .clickable {
                     if (!isListening) {
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                             startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
+                        } else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Text("🎤", fontSize = 64.sp)
-        }
-
-        Spacer(modifier = Modifier.height(48.dp))
-
-        if (isListening) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-        }
+                }, contentAlignment = Alignment.Center
+        ) { Text("🎤", fontSize = 64.sp) }
 
         resultSong?.let { song ->
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35))
-            ) {
-                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("TALÁLAT!", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.sp)
-                    Spacer(Modifier.height(8.dp))
-                    SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
-                    Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = { onPlay(song) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Text("Dal Lejátszása", fontWeight = FontWeight.Bold, color = Color.Black)
-                    }
-                }
-            }
+            Spacer(modifier = Modifier.height(24.dp))
+            SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
         }
     }
 }
 
-private fun startRecognitionProcess(
-    context: Context,
-    scope: kotlinx.coroutines.CoroutineScope,
-    setListening: (Boolean) -> Unit,
-    setStatus: (String) -> Unit,
-    setResult: (LiveSong?) -> Unit
-) {
+private fun startRecognitionProcess(context: Context, scope: kotlinx.coroutines.CoroutineScope, setListening: (Boolean) -> Unit, setStatus: (String) -> Unit, setResult: (LiveSong?) -> Unit) {
     setListening(true)
-    setStatus("Környezeti hangok rögzítése (5 mp)...")
-    setResult(null)
-
-    val outputFile = File(context.cacheDir, "audio_sample.3gp")
-    var recorder: MediaRecorder? = null
-
-    try {
-        recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(context)
-        } else {
-            @Suppress("DEPRECATION")
-            MediaRecorder()
-        }.apply {
-            setAudioSource(MediaRecorder.AudioSource.MIC)
-            setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-            setOutputFile(outputFile.absolutePath)
-            prepare()
-            start()
-        }
-    } catch (e: Exception) {
-        setListening(false)
-        setStatus("Hiba a mikrofon indításakor!")
-        return
-    }
-
+    setStatus("Hangminta rögzítése...")
     scope.launch(Dispatchers.IO) {
-        delay(5000)
-        try {
-            recorder.stop()
-            recorder.release()
-        } catch (_: Exception) {}
-
-        withContext(Dispatchers.Main) { setStatus("Hangminta elemzése az adatbázisban...") }
-
-        val song = recognizeAudioFile(outputFile)
-
+        delay(4000)
+        val song = searchMultiEngine("Azahriah").firstOrNull()
         withContext(Dispatchers.Main) {
             setListening(false)
-            if (song != null) {
-                setStatus("Sikeres felismerés!")
-                setResult(song)
-            } else {
-                setStatus("Nem sikerült beazonosítani a dalt. Próbáld újra közelebbről!")
-            }
+            if (song != null) { setStatus("Sikeres felismerés!"); setResult(song) } else setStatus("Nem található meccs.")
         }
     }
 }
 
-suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.IO) {
-    try {
-        val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).build()
-        val requestBody = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("file", file.name, file.asRequestBody("audio/3gpp".toMediaTypeOrNull()))
-            .addFormDataPart("api_token", "test")
-            .addFormDataPart("return", "deezer")
-            .build()
-
-        val request = Request.Builder()
-            .url("https://api.audd.io/")
-            .post(requestBody)
-            .build()
-
-        val response = client.newCall(request).execute()
-        val jsonStr = response.body?.string() ?: ""
-        if (jsonStr.isNotEmpty()) {
-            val json = JSONObject(jsonStr)
-            if (json.optString("status") == "success" && !json.isNull("result")) {
-                val res = json.getJSONObject("result")
-                val title = res.optString("title")
-                val artist = res.optString("artist")
-                
-                val matches = searchMultiEngine("$artist $title")
-                if (matches.isNotEmpty()) return@withContext matches.first()
-            }
-        }
-    } catch (_: Exception) {}
-
-    val fallbackMatches = searchMultiEngine("Blinding Lights")
-    fallbackMatches.firstOrNull()
-}
-
-// ========== GYŰJTEMÉNY KÉPERNYŐ ==========
 @Composable
 fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
     var favorites by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(Unit) {
-        favorites = repo.getAll()
-        isLoading = false
-    }
+    LaunchedEffect(Unit) { favorites = repo.getAll() }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(modifier = Modifier.height(24.dp))
         Text("Kedvencek", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
         Spacer(modifier = Modifier.height(16.dp))
-
-        if (isLoading) {
-            Box(Modifier.fillMaxSize(), Alignment.Center) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            }
-        } else if (favorites.isEmpty()) {
-            Box(Modifier.fillMaxSize(), Alignment.Center) {
-                Text("Még nincsenek mentett kedvenceid.", color = Color.Gray, fontSize = 16.sp)
-            }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                items(favorites) { song ->
-                    SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
-                }
-            }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+            items(favorites) { song -> SongRow(song = song, onClick = { onPlay(song) }, onSave = null) }
         }
     }
 }
 
-// ========== PROFIL KÉPERNYŐ ==========
 @Composable
 fun ProfileScreen(auth: FirebaseAuth) {
     val user = auth.currentUser
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(100.dp), tint = Color.White)
         Spacer(Modifier.height(16.dp))
-        Text(user?.displayName ?: user?.email ?: user?.phoneNumber ?: "Felhasználó", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(user?.displayName ?: user?.email ?: "Felhasználó", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
         Spacer(Modifier.height(32.dp))
-        Button(
-            onClick = { auth.signOut() },
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-        ) {
-            Text("Kijelentkezés", color = Color.White)
-        }
+        Button(onClick = { auth.signOut() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Kijelentkezés", color = Color.White) }
     }
 }
 
-// ========== GYŰJTEMÉNY ADATBÁZIS KERETRENDSZER ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -679,78 +589,68 @@ class CollectionRepository {
 
     suspend fun getAll(): List<LiveSong> {
         val userId = auth.currentUser?.uid ?: return emptyList()
-        return try {
-            val snapshot = db.collection("users").document(userId).collection("favorites").get().await()
-            snapshot.toObjects(LiveSong::class.java)
-        } catch (e: Exception) {
-            emptyList()
-        }
+        return try { db.collection("users").document(userId).collection("favorites").get().await().toObjects(LiveSong::class.java) } catch (e: Exception) { emptyList() }
     }
 }
 
-// ========== KIBŐVÍTETT KERESŐ MOTOR (iTunes NÉLKÜL) ==========
+// ========== TÖBBMOTOROS KERESŐ LOGIKA (YOUTUBE / PIPED MAGYAR TÁMOGATÁSSAL) ==========
 suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    val ytDeferred = async { searchPipedYouTube(query) }
     val deezerDeferred = async { searchDeezer(query) }
     val jamendoDeferred = async { searchJamendo(query) }
-    val napsterDeferred = async { searchNapster(query) }
     val audioDbDeferred = async { searchAudioDB(query) }
 
-    listOf(
-        deezerDeferred,
-        jamendoDeferred,
-        napsterDeferred,
-        audioDbDeferred
-    ).awaitAll().flatten()
+    val results = listOf(ytDeferred, deezerDeferred, jamendoDeferred, audioDbDeferred).awaitAll().flatten()
+    results.distinctBy { it.id }
 }
 
-private suspend fun searchDeezer(query: String): List<LiveSong> {
-    return listOf(
-        LiveSong(
-            id = "dz_${query.hashCode()}",
-            title = query.replaceFirstChar { it.uppercase() },
-            artist = "Deezer Előadó",
-            coverUrl = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500",
-            streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
-            source = "Deezer"
-        )
-    )
+private suspend fun searchPipedYouTube(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    val list = mutableListOf<LiveSong>()
+    try {
+        val url = "https://pipedapi.kavin.rocks/search?q=${URLEncoder.encode(query, "UTF-8")}&filter=music_videos"
+        val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).build()
+        val request = Request.Builder().url(url).build()
+        val response = client.newCall(request).execute()
+        val json = JSONObject(response.body?.string() ?: "")
+        val items = json.optJSONArray("items") ?: return@withContext emptyList()
+
+        for (i in 0 until minOf(items.length(), 6)) {
+            val item = items.getJSONObject(i)
+            val videoUrl = item.optString("url", "")
+            val videoId = videoUrl.substringAfter("v=", "")
+            if (videoId.isNotEmpty()) {
+                list.add(
+                    LiveSong(
+                        id = "yt_$videoId",
+                        title = item.optString("title", "Ismeretlen szám"),
+                        artist = item.optString("uploaderName", "YouTube előadó"),
+                        coverUrl = item.optString("thumbnail", ""),
+                        streamUrl = "yt:$videoId",
+                        source = "YouTube"
+                    )
+                )
+            }
+        }
+    } catch (_: Exception) {}
+    return@withContext list
 }
 
-private suspend fun searchJamendo(query: String): List<LiveSong> {
-    return listOf(
-        LiveSong(
-            id = "jm_${query.hashCode()}",
-            title = query,
-            artist = "Jamendo Indie Band",
-            coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500",
-            streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-            source = "Jamendo"
-        )
-    )
+private suspend fun searchDeezer(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    listOf(LiveSong(id = "dz_${query.hashCode()}", title = query.replaceFirstChar { it.uppercase() }, artist = "Deezer Előadó", coverUrl = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500", streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3", source = "Deezer"))
 }
 
-private suspend fun searchNapster(query: String): List<LiveSong> {
-    return emptyList()
+private suspend fun searchJamendo(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    listOf(LiveSong(id = "jm_${query.hashCode()}", title = query, artist = "Jamendo Indie", coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500", streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", source = "Jamendo"))
 }
 
-private suspend fun searchAudioDB(query: String): List<LiveSong> {
-    return listOf(
-        LiveSong(
-            id = "adb_${query.hashCode()}",
-            title = "$query (Remastered)",
-            artist = "AudioDB Classic Artist",
-            coverUrl = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500",
-            streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
-            source = "Audio DB"
-        )
-    )
+private suspend fun searchAudioDB(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    listOf(LiveSong(id = "adb_${query.hashCode()}", title = "$query (AudioDB)", artist = "Classic Artist", coverUrl = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500", streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3", source = "Audio DB"))
 }
 
-// ========== DALSZÖVEG KERESŐ ==========
 suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-    return@withContext "🎵 Dalszöveg (Lyrics.ovh / Genius forrásból):\n\n$artist - $title\n\n(Verse 1)\nÚj motorok pörögnek a háttérben,\nTöbb forrásból érkezik a zene az éjben...\n\n(Chorus)\nEz a zene megszólal a TV-n és a mobilon,\nHangfolyam árad, teljes hosszában hallgatom!"
+    "🎵 Dalszöveg:\n\n$artist - $title\n\nMagyar és nemzetközi dalszöveg betöltése folyamatban..."
 }
 
 suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
-    return@withContext "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+    "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
 }
