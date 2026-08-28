@@ -49,6 +49,16 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
+// Media3 (Zenelejátszás és háttérszolgáltatás)
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-session:1.3.1")
+    implementation("androidx.media3:media3-common:1.3.1")
+
+    // Room adatbázis (Offline kedvencekhez)
+    val roomVersion = "2.6.1"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion") // Vagy kaptus, attól függően mi van beállítva
 
     // Google Sign-In
     implementation("com.google.android.gms:play-services-auth:20.7.0")
