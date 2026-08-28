@@ -77,10 +77,10 @@ private const val RAPIDAPI_HOST = "youtube-media-downloader.p.rapidapi.com"
 
 // ========== ADATMODELLEK ==========
 data class LiveSong(
-    val id: String = "", 
-    val title: String = "", 
-    val artist: String = "", 
-    val coverUrl: String = "", 
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
+    val coverUrl: String = "",
     val streamUrl: String = "",
     val source: String = "YouTube"
 )
@@ -673,21 +673,25 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
                 inactiveTrackColor = Color.Gray.copy(alpha = 0.3f)
             )
         )
+        
+        // --- INNENTŐL HIÁNYZOTT A KÓDOD ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(formatTime(position.toLong()), color = Color.Gray, fontSize = 12.sp)
-            Text(formatTime(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
+            Text(formatDuration(position.toLong()), color = Color.Gray, fontSize = 12.sp)
+            Text(formatDuration(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
         }
         Spacer(Modifier.height(16.dp))
+        
+        // JAVÍTOTT GOMBOK RÉSZE
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { exoPlayer.seekTo(0) }) {
-                Icon(Icons.Default.SkipPrevious, contentDescription = "Előző", tint = Color.White, modifier = Modifier.size(36.dp))
+                Text("⏮", fontSize = 28.sp, color = Color.White)
             }
             Box(
                 modifier = Modifier
@@ -699,38 +703,39 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "Szünet" else "Lejátszás",
-                    tint = Color.Black,
-                    modifier = Modifier.size(36.dp)
-                )
+                Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
             }
             IconButton(onClick = { /* Következő dal logika */ }) {
-                Icon(Icons.Default.SkipNext, contentDescription = "Következő", tint = Color.White, modifier = Modifier.size(36.dp))
+                Text("⏭", fontSize = 28.sp, color = Color.White)
             }
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(32.dp))
+        
+        // Dalszöveg megjelenítése
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF191928))
+                .background(Color(0xFF161625))
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text("DALSZÖVEG", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                Spacer(Modifier.height(8.dp))
-                Text(lyrics, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp)
-            }
+            Text(
+                text = lyrics,
+                color = Color.LightGray,
+                fontSize = 16.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
 
-fun formatTime(ms: Long): String {
-    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+// Segédfüggvény az idő formázásához
+fun formatDuration(durationMs: Long): String {
+    val totalSeconds = durationMs / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    return String.format(Locale.US, "%d:%02d", minutes, seconds)
+    return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
 }
