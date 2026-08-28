@@ -427,54 +427,98 @@ fun ProfileScreen(auth: FirebaseAuth) {
     }
 }
 
-// ========== KIZÁRÓLAG YOUTUBE / PIPED KERESŐ (TELJES DALOK) ==========
+// ========== AUTOMATIKUSAN VÁLTÓ TUBESZERVEREK (FALLBACK INSTANCES) ==========
+val PIPED_INSTANCES = listOf(
+    "https://api.piped.privacydev.net",
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.tokhmi.xyz",
+    "https://pipedapi.moomoo.me",
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.astro.al"
+)
+
 suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    val client = OkHttpClient()
+    val client = OkHttpClient.Builder()
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .build()
     val encodedQuery = URLEncoder.encode(query, "UTF-8")
 
-    try {
-        val ytSongs = mutableListOf<LiveSong>()
-        val url = "https://pipedapi.kavin.rocks/search?q=$encodedQuery&filter=all"
-        val request = Request.Builder().url(url).build()
-        val response = client.newCall(request).execute()
-        val json = JSONObject(response.body?.string() ?: "")
-        val results = json.optJSONArray("items")
-        
-        if (results != null && results.length() > 0) {
+    for (baseUrl in PIPED_INSTANCES) {
+        try {
+            val url = "$baseUrl/search?q=$encodedQuery&filter=all"
+            val request = Request.Builder().url(url).build()
+            val response = client.newCall(request).execute()
+            
+            if (!response.isSuccessful) continue
+
+            val body = response.body?.string() ?: continue
+            val json = JSONObject(body)
+            val results = json.optJSONArray("items") ?: continue
+            val ytSongs = mutableListOf<LiveSong>()
+
             for (i in 0 until results.length()) {
                 val item = results.getJSONObject(i)
                 if (item.optString("type") == "stream") {
                     val videoId = item.optString("url").removePrefix("/watch?v=")
-                    ytSongs.add(LiveSong(
-                        id = videoId, 
-                        title = item.optString("title", "Ismeretlen"), 
-                        artist = item.optString("uploaderName", "YouTube"), 
-                        coverUrl = item.optString("thumbnail", ""), 
-                        streamUrl = "yt:$videoId", 
-                        source = "YouTube"
-                    ))
+                    ytSongs.add(
+                        LiveSong(
+                            id = videoId,
+                            title = item.optString("title", "Ismeretlen dal"),
+                            artist = item.optString("uploaderName", "YouTube"),
+                            coverUrl = item.optString("thumbnail", ""),
+                            streamUrl = "yt:$videoId",
+                            source = "YouTube"
+                        )
+                    )
                 }
                 if (ytSongs.size >= 25) break
             }
+
+            if (ytSongs.isNotEmpty()) {
+                return@withContext ytSongs
+            }
+        } catch (_: Exception) {
+            continue
         }
-        return@withContext ytSongs
-    } catch (_: Exception) {}
+    }
 
     return@withContext emptyList()
 }
 
 suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
-    try {
-        val client = OkHttpClient()
-        val url = "https://pipedapi.kavin.rocks/streams/$videoId"
-        val request = Request.Builder().url(url).build()
-        val response = client.newCall(request).execute()
-        val json = JSONObject(response.body?.string() ?: "")
-        if (json.has("audioStreams")) {
-            val audioStreams = json.getJSONArray("audioStreams")
-            if (audioStreams.length() > 0) return@withContext audioStreams.getJSONObject(0).getString("url")
+    val client = OkHttpClient.Builder()
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .build()
+
+    for (baseUrl in PIPED_INSTANCES) {
+        try {
+            val url = "$baseUrl/streams/$videoId"
+            val request = Request.Builder().url(url).build()
+            val response = client.newCall(request).execute()
+
+            if (!response.isSuccessful) continue
+
+            val body = response.body?.string() ?: continue
+            val json = JSONObject(body)
+
+            if (json.has("audioStreams")) {
+                val audioStreams = json.getJSONArray("audioStreams")
+                if (audioStreams.length() > 0) {
+                    for (i in 0 until audioStreams.length()) {
+                        val stream = audioStreams.getJSONObject(i)
+                        val streamUrl = stream.optString("url")
+                        if (streamUrl.isNotEmpty()) {
+                            return@withContext streamUrl
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            continue
         }
-    } catch (_: Exception) {}
+    }
     return@withContext null
 }
 
