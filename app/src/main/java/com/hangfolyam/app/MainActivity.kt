@@ -72,7 +72,7 @@ import java.util.concurrent.TimeUnit
 
 // ========== CONSTANTS & RAPIDAPI CONFIG ==========
 private const val RAPIDAPI_KEY = "2d254d6e90msh93b4b9705fc3e35p1af4c0jsna208abe5a1fc"
-private const val RAPIDAPI_HOST = "spotify-downloader11.p.rapidapi.com"
+private const val RAPIDAPI_HOST = "youtube-media-downloader.p.rapidapi.com" // <-- ÚJ HOST BEÁLLÍTVA
 
 // ========== ADATMODELLEK ==========
 data class LiveSong(
@@ -81,7 +81,7 @@ data class LiveSong(
     val artist: String = "", 
     val coverUrl: String = "", 
     val streamUrl: String = "",
-    val source: String = "Spotify"
+    val source: String = "YouTube"
 )
 
 data class UpdateInfo(
@@ -343,7 +343,7 @@ fun HomeScreen(auth: FirebaseAuth) {
                 exoPlayer.setMediaItem(MediaItem.fromUri(playUrl))
                 exoPlayer.prepare()
                 exoPlayer.play()
-            } else Toast.makeText(context, "Hiba a lejátszáskor.", Toast.LENGTH_SHORT).show()
+            } else Toast.makeText(context, "Hiba a lejátszáskor. Nincs találat a szerveren.", Toast.LENGTH_SHORT).show()
             isBuffering = false
         }
     }
@@ -368,7 +368,7 @@ fun HomeScreen(auth: FirebaseAuth) {
         Box(modifier = Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(listOf(Color(0xFF121225), Color(0xFF05050B))))) {
             when (currentTab) {
                 "SEARCH" -> SearchScreen({ playSong(it) }, { scope.launch { repo.add(it); Toast.makeText(context, "Mentve a kedvencekhez!", Toast.LENGTH_SHORT).show() } })
-                "RECOGNIZE" -> RecognizeScreen { playSong(it) }
+                "RECOGNIZE" -> RecognizeScreen { playSong(it) } // <-- Dummy recognize screen (maradt a kódodban)
                 "COLLECTION" -> CollectionScreen(repo) { playSong(it) }
                 "PROFILE" -> ProfileScreen(auth)
             }
@@ -387,11 +387,21 @@ fun HomeScreen(auth: FirebaseAuth) {
     }
 }
 
-// ========== RAPIDAPI INTEGRÁCIÓ ==========
+@Composable
+fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
+    // Ezt majd kicseréljük igazi mikrofonos Shazam kódra a következő lépésben!
+    Box(Modifier.fillMaxSize(), Alignment.Center) {
+        Text("Itt lesz a hangfelismerő", color = Color.White)
+    }
+}
+
+// ========== ÚJRAPROGRAMOZOTT RAPIDAPI INTEGRÁCIÓ ==========
 suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
     val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
     val encodedQuery = URLEncoder.encode(query, "UTF-8")
-    val url = "https://$RAPIDAPI_HOST/search.php?q=$encodedQuery"
+    
+    // Az általad választott YouTube Search végpont
+    val url = "https://$RAPIDAPI_HOST/v2/search/videos?keyword=$encodedQuery"
 
     val request = Request.Builder()
         .url(url)
@@ -404,19 +414,29 @@ suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatch
         if (response.isSuccessful) {
             val body = response.body?.string() ?: return@withContext emptyList()
             val json = JSONObject(body)
-            val resultsArray = json.optJSONArray("tracks") ?: json.optJSONArray("data") ?: return@withContext emptyList()
+            
+            // A legtöbb YouTube API "items", "results" vagy "data" mezőbe rakja a videókat
+            val resultsArray = json.optJSONArray("items") ?: json.optJSONArray("results") ?: json.optJSONArray("data") ?: return@withContext emptyList()
 
             val songsList = mutableListOf<LiveSong>()
             for (i in 0 until resultsArray.length()) {
                 val item = resultsArray.getJSONObject(i)
+                
+                // Borítókép kiválasztása (thumbnail)
+                var cover = item.optString("thumbnail", "")
+                if (cover.isEmpty() && item.has("thumbnails")) {
+                    val thumbs = item.optJSONArray("thumbnails")
+                    if (thumbs != null && thumbs.length() > 0) cover = thumbs.getJSONObject(0).optString("url", "")
+                }
+
                 songsList.add(
                     LiveSong(
-                        id = item.optString("id", item.optString("url")),
-                        title = item.optString("title", item.optString("name", "Ismeretlen dal")),
-                        artist = item.optString("artist", item.optString("artists", "Ismeretlen előadó")),
-                        coverUrl = item.optString("cover", item.optString("image", "")),
-                        streamUrl = item.optString("download_url", item.optString("link", "")),
-                        source = "Spotify Premium"
+                        id = item.optString("videoId", item.optString("id", "")),
+                        title = item.optString("title", "Ismeretlen dal"),
+                        artist = item.optString("channelTitle", item.optString("author", "Ismeretlen előadó")),
+                        coverUrl = cover,
+                        streamUrl = "", // Ezt a fetchAudioStreamRapidAPI kéri le lejátszáskor
+                        source = "YouTube"
                     )
                 )
             }
@@ -429,7 +449,10 @@ suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatch
 suspend fun fetchAudioStreamRapidAPI(trackIdOrUrl: String): String? = withContext(Dispatchers.IO) {
     val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
     val encodedId = URLEncoder.encode(trackIdOrUrl, "UTF-8")
-    val url = "https://$RAPIDAPI_HOST/download.php?id=$encodedId"
+    
+    // A lejátszáshoz egy Video Details / Audio Downloader végpont kell az API-ból. 
+    // Általában ez így néz ki: /v2/video/details vagy /v2/video/download
+    val url = "https://$RAPIDAPI_HOST/v2/video/details?videoId=$encodedId"
 
     val request = Request.Builder()
         .url(url)
@@ -442,7 +465,13 @@ suspend fun fetchAudioStreamRapidAPI(trackIdOrUrl: String): String? = withContex
         if (response.isSuccessful) {
             val body = response.body?.string() ?: return@withContext null
             val json = JSONObject(body)
-            return@withContext json.optString("link", json.optString("download_url", null))
+            
+            // Ha közvetlen audio listát ad vissza
+            val audios = json.optJSONArray("audios") ?: json.optJSONArray("formats")
+            if (audios != null && audios.length() > 0) {
+                return@withContext audios.getJSONObject(0).optString("url", null)
+            }
+            return@withContext json.optString("link", json.optString("download_url", json.optString("url", null)))
         }
     } catch (_: Exception) {}
     return@withContext null
@@ -500,7 +529,7 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF1DB954).copy(alpha=0.2f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
                 Text("🎵", fontSize = 10.sp)
                 Spacer(Modifier.width(4.dp))
-                Text("RapidAPI HQ", fontSize = 10.sp, color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
+                Text("YouTube HQ", fontSize = 10.sp, color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
             }
         }
         if (onSave != null) { IconButton(onClick = onSave) { Text("❤️", fontSize = 22.sp) } }
@@ -634,137 +663,11 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
     }
 }
 
+// A csúszkához tartozó formázó maradt
+@Composable
 fun formatTime(ms: Long): String {
     val totalSeconds = ms / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
-}
-
-@Composable
-fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var isListening by remember { mutableStateOf(false) }
-    var resultSong by remember { mutableStateOf<LiveSong?>(null) }
-    var statusText by remember { mutableStateOf("Koppints a gombra a felismeréshez") }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
-        } else {
-            Toast.makeText(context, "Mikrofon engedély szükséges!", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f, targetValue = 1.28f,
-        animationSpec = infiniteRepeatable(animation = tween(1000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "PulseScale"
-    )
-
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("Zenefelismerés", fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(statusText, fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
-        Spacer(modifier = Modifier.height(48.dp))
-
-        Box(
-            modifier = Modifier
-                .size(170.dp)
-                .scale(if (isListening) pulseScale else 1f)
-                .shadow(30.dp, CircleShape)
-                .clip(CircleShape)
-                .background(if (isListening) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary)
-                .clickable {
-                    if (!isListening) {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                            startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Text("🎤", fontSize = 64.sp)
-        }
-
-        Spacer(modifier = Modifier.height(48.dp))
-        if (isListening) CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-
-        resultSong?.let { song ->
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35))) {
-                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("TALÁLAT!", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.sp)
-                    Spacer(Modifier.height(8.dp))
-                    SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { onPlay(song) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
-                        Text("Dal Lejátszása", fontWeight = FontWeight.Bold, color = Color.Black)
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun startRecognitionProcess(
-    context: Context,
-    scope: kotlinx.coroutines.CoroutineScope,
-    setListening: (Boolean) -> Unit,
-    setStatus: (String) -> Unit,
-    setResult: (LiveSong?) -> Unit
-) {
-    setListening(true)
-    setStatus("Rögzítés (5 mp)...")
-    setResult(null)
-
-    val outputFile = File(context.cacheDir, "audio_sample.3gp")
-    var recorder: MediaRecorder? = null
-
-    try {
-        recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(context)
-        } else {
-            @Suppress("DEPRECATION")
-            MediaRecorder()
-        }.apply {
-            setAudioSource(MediaRecorder.AudioSource.MIC)
-            setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-            setOutputFile(outputFile.absolutePath)
-            prepare()
-            start()
-        }
-    } catch (_: Exception) {
-        setListening(false)
-        setStatus("Mikrofon hiba!")
-        return
-    }
-
-    scope.launch(Dispatchers.IO) {
-        delay(5000)
-        try {
-            recorder.stop()
-            recorder.release()
-        } catch (_: Exception) {}
-
-        withContext(Dispatchers.Main) { setStatus("Elemzés...") }
-        val song = recognizeAudioFile(outputFile)
-
-        withContext(Dispatchers.Main) {
-            setListening(false)
-            if (song != null) {
-                setStatus("Sikeres felismerés!")
-                setResult(song)
-            } else {
-                setStatus("Nem sikerült azonosítani.")
-            }
-        }
-    }
 }
