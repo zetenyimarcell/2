@@ -662,72 +662,73 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300" },
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(260.dp).clip(RoundedCornerShape(24.dp)).shadow(16.dp)
+            modifier = Modifier
+                .size(260.dp)
+                .shadow(16.dp, RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(24.dp))
         )
-        Spacer(Modifier.height(24.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(song.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(song.artist, color = Color.Gray, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+        
+        Spacer(Modifier.height(32.dp))
+        
+        // Cím és előadó
+        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+            Text(song.title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(song.artist, fontSize = 16.sp, color = Color.LightGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
+
+        // Keresősáv (Seekbar)
         Slider(
-            value = position.coerceIn(0f, duration),
-            onValueChange = {
+            value = if (duration > 0f) position / duration else 0f,
+            onValueChange = { 
                 seeking = true
-                position = it
+                position = it * duration
             },
             onValueChangeFinished = {
-                exoPlayer.seekTo(position.toLong())
                 seeking = false
+                exoPlayer.seekTo(position.toLong())
             },
-            valueRange = 0f..duration,
             colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
+                thumbColor = Color.White,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = Color.Gray.copy(alpha = 0.3f)
-            )
+                inactiveTrackColor = Color.DarkGray
+            ),
+            modifier = Modifier.fillMaxWidth()
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(formatDuration(position.toLong()), color = Color.Gray, fontSize = 12.sp)
-            Text(formatDuration(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
+        
+        // Időkijelzés
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(formatTime(position.toLong()), color = Color.Gray, fontSize = 12.sp)
+            Text(formatTime(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
         }
         Spacer(Modifier.height(16.dp))
+
+        // Vezérlőgombok
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { exoPlayer.seekTo(0) }) {
-                Text("⏮", fontSize = 28.sp, color = Color.White)
+            IconButton(onClick = { exoPlayer.seekBack() }, modifier = Modifier.size(48.dp)) {
+                Text("⏪", fontSize = 24.sp, color = Color.White)
             }
             Box(
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(72.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
-                    .clickable {
-                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                    },
+                    .clickable { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
                 contentAlignment = Alignment.Center
             ) {
-                Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
+                Text(if (isPlaying) "⏸" else "▶", fontSize = 32.sp, color = Color.Black)
             }
-            IconButton(onClick = { }) {
-                Text("⏭", fontSize = 28.sp, color = Color.White)
+            IconButton(onClick = { exoPlayer.seekForward() }, modifier = Modifier.size(48.dp)) {
+                Text("⏩", fontSize = 24.sp, color = Color.White)
             }
         }
-        
         Spacer(Modifier.height(32.dp))
-        
+
+        // Dalszöveg
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -736,22 +737,19 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
                 .background(Color(0xFF16221B))
                 .padding(16.dp)
         ) {
-            val scrollState = rememberScrollState()
-            Text(
-                text = lyrics,
-                color = Color.LightGray,
-                fontSize = 15.sp,
-                lineHeight = 22.sp,
-                modifier = Modifier.verticalScroll(scrollState)
-            )
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text("Dalszöveg", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 18.sp)
+                Spacer(Modifier.height(8.dp))
+                Text(lyrics, color = Color.LightGray, fontSize = 16.sp, lineHeight = 24.sp)
+            }
         }
     }
 }
 
-fun formatDuration(durationMs: Long): String {
-    if (durationMs < 0) return "00:00"
-    val totalSeconds = durationMs / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+// Segédfüggvény az időformázáshoz
+fun formatTime(ms: Long): String {
+    if (ms < 0) return "0:00"
+    val seconds = (ms / 1000) % 60
+    val minutes = (ms / 1000) / 60
+    return String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
 }
