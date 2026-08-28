@@ -1,12 +1,8 @@
 package com.hangfolyam.app
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.media.MediaRecorder
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -32,7 +28,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -44,7 +39,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
@@ -66,14 +60,13 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.io.File
 import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-// ========== CONSTANTS & RAPIDAPI CONFIG ==========
+// ========== SPOTIFY RAPIDAPI CONFIG ==========
 private const val RAPIDAPI_KEY = "2d254d6e90msh93b4b9705fc3e35p1af4c0jsna208abe5a1fc"
-private const val RAPIDAPI_HOST = "youtube-media-downloader.p.rapidapi.com"
+private const val RAPIDAPI_HOST = "spotify23.p.rapidapi.com"
 
 // ========== ADATMODELLEK ==========
 data class LiveSong(
@@ -82,7 +75,7 @@ data class LiveSong(
     val artist: String = "",
     val coverUrl: String = "",
     val streamUrl: String = "",
-    val source: String = "YouTube"
+    val source: String = "Spotify"
 )
 
 data class UpdateInfo(
@@ -92,7 +85,109 @@ data class UpdateInfo(
     val releaseNotes: String
 )
 
-// ========== ADATBÁZIS ÉS SEGÉDEK ==========
+// ========== SPOTIFY KERESŐMOTOR ==========
+suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    if (query.trim().isEmpty()) return@withContext emptyList()
+
+    val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
+    val encodedQuery = URLEncoder.encode(query, "UTF-8")
+    val url = "https://$RAPIDAPI_HOST/search/?q=$encodedQuery&type=tracks&offset=0&limit=20"
+
+    val request = Request.Builder()
+        .url(url)
+        .addHeader("x-rapidapi-key", RAPIDAPI_KEY)
+        .addHeader("x-rapidapi-host", RAPIDAPI_HOST)
+        .build()
+
+    try {
+        val response = client.newCall(request).execute()
+        if (response.isSuccessful) {
+            val body = response.body?.string() ?: return@withContext emptyList()
+            val json = JSONObject(body)
+            val tracksObj = json.optJSONObject("tracks") ?: return@withContext emptyList()
+            val itemsArray = tracksObj.optJSONArray("items") ?: return@withContext emptyList()
+
+            val songsList = mutableListOf<LiveSong>()
+            for (i in 0 until itemsArray.length()) {
+                val item = itemsArray.getJSONObject(i)
+                val data = item.optJSONObject("data") ?: item
+
+                val trackId = data.optString("id", "")
+                val title = data.optString("name", "Ismeretlen dal")
+                
+                // Előadók kiszedése
+                var artistName = "Ismeretlen előadó"
+                val artistsObj = data.optJSONObject("artists")
+                if (artistsObj != null) {
+                    val artistItems = artistsObj.optJSONArray("items")
+                    if (artistItems != null && artistItems.length() > 0) {
+                        artistName = artistItems.getJSONObject(0).optJSONObject("profile")?.optString("name", "Ismeretlen előadó") ?: "Ismeretlen előadó"
+                    }
+                }
+
+                // Borítókép kiszedése
+                var coverUrl = ""
+                val albumObj = data.optJSONObject("albumOfTrack") ?: data.optJSONObject("album")
+                val coverArt = albumObj?.optJSONObject("coverArt")?.optJSONArray("sources")
+                if (coverArt != null && coverArt.length() > 0) {
+                    coverUrl = coverArt.getJSONObject(0).optString("url", "")
+                }
+
+                // Minta hanganyag URL (ha van a válaszban)
+                val previewUrl = data.optString("preview_url", "")
+
+                songsList.add(
+                    LiveSong(
+                        id = trackId,
+                        title = title,
+                        artist = artistName,
+                        coverUrl = coverUrl,
+                        streamUrl = previewUrl,
+                        source = "Spotify"
+                    )
+                )
+            }
+            return@withContext songsList
+        }
+    } catch (_: Exception) {}
+    return@withContext emptyList()
+}
+
+// Spotify Dalszöveg lekérése a RapidAPI-ról
+suspend fun fetchSpotifyLyrics(trackId: String): String? = withContext(Dispatchers.IO) {
+    if (trackId.isEmpty()) return@withContext "Dalszöveg nem érhető el."
+    
+    val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
+    val url = "https://$RAPIDAPI_HOST/track_lyrics/?id=$trackId"
+
+    val request = Request.Builder()
+        .url(url)
+        .addHeader("x-rapidapi-key", RAPIDAPI_KEY)
+        .addHeader("x-rapidapi-host", RAPIDAPI_HOST)
+        .build()
+
+    try {
+        val response = client.newCall(request).execute()
+        if (response.isSuccessful) {
+            val body = response.body?.string() ?: return@withContext null
+            val json = JSONObject(body)
+            val lyricsObj = json.optJSONObject("lyrics")
+            val linesArray = lyricsObj?.optJSONArray("lines")
+            
+            if (linesArray != null) {
+                val lyricsBuilder = StringBuilder()
+                for (i in 0 until linesArray.length()) {
+                    val line = linesArray.getJSONObject(i)
+                    lyricsBuilder.append(line.optString("words", "")).append("\n")
+                }
+                return@withContext lyricsBuilder.toString()
+            }
+        }
+    } catch (_: Exception) {}
+    return@withContext "Dalszöveg nem található ehhez a számhoz."
+}
+
+// ========== ADATBÁZIS ÉS REPOSITORY ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -113,33 +208,6 @@ class CollectionRepository {
             emptyList()
         }
     }
-}
-
-suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-    try {
-        val client = OkHttpClient()
-        val url = "https://api.lyrics.ovh/v1/${URLEncoder.encode(artist.trim(), "UTF-8")}/${URLEncoder.encode(title.trim(), "UTF-8")}"
-        val request = Request.Builder().url(url).build()
-        val response = client.newCall(request).execute()
-        val body = response.body?.string()
-        if (response.isSuccessful && body != null) {
-            val json = JSONObject(body)
-            return@withContext json.optString("lyrics", null)
-        }
-    } catch (_: Exception) {}
-    return@withContext "Dalszöveg nem érhető el ehhez a zenéhez."
-}
-
-suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.IO) {
-    delay(2000)
-    return@withContext LiveSong(
-        id = "rec_1",
-        title = "Ismert Dal",
-        artist = "Előadó",
-        coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150",
-        streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-        source = "Recognized"
-    )
 }
 
 class MainActivity : ComponentActivity() {
@@ -253,14 +321,14 @@ fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAut
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF23143A), Color(0xFF05050B)))), contentAlignment = Alignment.Center) {
+    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF142B20), Color(0xFF05050B)))), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
             Box(modifier = Modifier.size(100.dp).shadow(20.dp, CircleShape).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(60.dp))
             }
             Spacer(Modifier.height(24.dp))
-            Text("Nova Premium", fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-            Text("Magyar & Nemzetközi zenék tárháza.", fontSize = 15.sp, color = Color.Gray, textAlign = TextAlign.Center)
+            Text("Spotify Nova", fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Text("Keresés és dalszövegek a Spotify adatbázisából.", fontSize = 15.sp, color = Color.Gray, textAlign = TextAlign.Center)
             Spacer(Modifier.height(64.dp))
 
             if (isLoading) CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
@@ -323,7 +391,7 @@ fun HomeScreen(auth: FirebaseAuth) {
     var currentTab by remember { mutableStateOf("SEARCH") }
     var currentlyPlaying by remember { mutableStateOf<LiveSong?>(null) }
     var isBuffering by remember { mutableStateOf(false) }
-    var lyricsText by remember { mutableStateOf("Dalszöveg keresése...") }
+    var lyricsText by remember { mutableStateOf("Dalszöveg betöltése...") }
 
     var isPlayerExpanded by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -333,23 +401,19 @@ fun HomeScreen(auth: FirebaseAuth) {
     fun playSong(song: LiveSong) {
         currentlyPlaying = song
         isBuffering = true
-        lyricsText = "Dalszöveg keresése..."
+        lyricsText = "Dalszöveg betöltése..."
+        
         scope.launch {
             launch(Dispatchers.IO) {
-                lyricsText = fetchLyrics(song.artist, song.title) ?: "Dalszöveg nem található."
+                lyricsText = fetchSpotifyLyrics(song.id) ?: "Dalszöveg nem érhető el."
             }
 
-            val playUrl = if (song.streamUrl.isNotEmpty() && song.streamUrl.startsWith("http")) 
-                song.streamUrl 
-            else 
-                fetchAudioStream(song.id) ?: ""
-
-            if (playUrl.isNotEmpty()) {
-                exoPlayer.setMediaItem(MediaItem.fromUri(playUrl))
+            if (song.streamUrl.isNotEmpty()) {
+                exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
                 exoPlayer.prepare()
                 exoPlayer.play()
             } else {
-                Toast.makeText(context, "Hiba a lejátszáskor. Nincs találat a szerveren.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Minta stream nem áll rendelkezésre.", Toast.LENGTH_SHORT).show()
             }
             isBuffering = false
         }
@@ -364,18 +428,16 @@ fun HomeScreen(auth: FirebaseAuth) {
                     }
                 }
                 NavigationBar(containerColor = Color(0xFF0F0F1A), contentColor = Color.White) {
-                    NavigationBarItem(selected = currentTab == "SEARCH", onClick = { currentTab = "SEARCH" }, icon = { Icon(Icons.Default.Search, null) }, label = { Text("Felfedezés") })
-                    NavigationBarItem(selected = currentTab == "RECOGNIZE", onClick = { currentTab = "RECOGNIZE" }, icon = { Text("🎤", fontSize = 18.sp) }, label = { Text("Felismerés") })
+                    NavigationBarItem(selected = currentTab == "SEARCH", onClick = { currentTab = "SEARCH" }, icon = { Icon(Icons.Default.Search, null) }, label = { Text("Spotify Kereső") })
                     NavigationBarItem(selected = currentTab == "COLLECTION", onClick = { currentTab = "COLLECTION" }, icon = { Text("❤️", fontSize = 18.sp) }, label = { Text("Gyűjtemény") })
                     NavigationBarItem(selected = currentTab == "PROFILE", onClick = { currentTab = "PROFILE" }, icon = { Icon(Icons.Default.Person, null) }, label = { Text("Profil") })
                 }
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(listOf(Color(0xFF121225), Color(0xFF05050B))))) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(listOf(Color(0xFF101B15), Color(0xFF05050B))))) {
             when (currentTab) {
                 "SEARCH" -> SearchScreen({ playSong(it) }, { scope.launch { repo.add(it); Toast.makeText(context, "Mentve a kedvencekhez!", Toast.LENGTH_SHORT).show() } })
-                "RECOGNIZE" -> RecognizeScreen { playSong(it) }
                 "COLLECTION" -> CollectionScreen(repo) { playSong(it) }
                 "PROFILE" -> ProfileScreen(auth)
             }
@@ -385,101 +447,13 @@ fun HomeScreen(auth: FirebaseAuth) {
             ModalBottomSheet(
                 onDismissRequest = { isPlayerExpanded = false },
                 sheetState = sheetState,
-                containerColor = Color(0xFF0D0D17),
+                containerColor = Color(0xFF0D1711),
                 modifier = Modifier.fillMaxSize()
             ) {
                 FullPlayerScreen(song = currentlyPlaying!!, exoPlayer = exoPlayer, lyrics = lyricsText, onDismiss = { scope.launch { sheetState.hide(); isPlayerExpanded = false } })
             }
         }
     }
-}
-
-@Composable
-fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
-    Box(Modifier.fillMaxSize(), Alignment.Center) {
-        Text("Itt lesz a hangfelismerő", color = Color.White)
-    }
-}
-
-// ========== RAPIDAPI KERESÉS ÉS PIPED STREAM KERESŐ ==========
-suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
-    val encodedQuery = URLEncoder.encode(query, "UTF-8")
-    val url = "https://$RAPIDAPI_HOST/v2/search/videos?keyword=$encodedQuery"
-
-    val request = Request.Builder()
-        .url(url)
-        .addHeader("X-RapidAPI-Key", RAPIDAPI_KEY)
-        .addHeader("X-RapidAPI-Host", RAPIDAPI_HOST)
-        .build()
-
-    try {
-        val response = client.newCall(request).execute()
-        if (response.isSuccessful) {
-            val body = response.body?.string() ?: return@withContext emptyList()
-            val json = JSONObject(body)
-            val resultsArray = json.optJSONArray("items") ?: json.optJSONArray("results") ?: json.optJSONArray("data") ?: return@withContext emptyList()
-
-            val songsList = mutableListOf<LiveSong>()
-            for (i in 0 until resultsArray.length()) {
-                val item = resultsArray.getJSONObject(i)
-                
-                var cover = item.optString("thumbnail", "")
-                if (cover.isEmpty() && item.has("thumbnails")) {
-                    val thumbs = item.optJSONArray("thumbnails")
-                    if (thumbs != null && thumbs.length() > 0) cover = thumbs.getJSONObject(0).optString("url", "")
-                }
-
-                songsList.add(
-                    LiveSong(
-                        id = item.optString("videoId", item.optString("id", "")),
-                        title = item.optString("title", "Ismeretlen dal"),
-                        artist = item.optString("channelTitle", item.optString("author", "Ismeretlen előadó")),
-                        coverUrl = cover,
-                        streamUrl = "",
-                        source = "YouTube"
-                    )
-                )
-            }
-            return@withContext songsList
-        }
-    } catch (_: Exception) {}
-    return@withContext emptyList()
-}
-
-suspend fun fetchAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
-    if (videoId.startsWith("http")) return@withContext videoId
-
-    val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
-        
-    val url = "https://pipedapi.kavin.rocks/streams/$videoId"
-    
-    try {
-        val request = Request.Builder().url(url).build()
-        val response = client.newCall(request).execute()
-        
-        if (response.isSuccessful) {
-            val body = response.body?.string() ?: return@withContext null
-            val json = JSONObject(body)
-            
-            val audioStreams = json.optJSONArray("audioStreams")
-            if (audioStreams != null && audioStreams.length() > 0) {
-                for (i in 0 until audioStreams.length()) {
-                    val stream = audioStreams.getJSONObject(i)
-                    val streamUrl = stream.optString("url", "")
-                    if (streamUrl.isNotEmpty()) {
-                        return@withContext streamUrl
-                    }
-                }
-            }
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
-    return@withContext null
 }
 
 @Composable
@@ -491,21 +465,21 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Mit hallgatnál?", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+        Text("Spotify Keresés", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
         Spacer(modifier = Modifier.height(16.dp))
         OutlinedTextField(
             value = query, onValueChange = { 
                 query = it
                 if (it.length >= 2) {
                     isLoading = true
-                    scope.launch { results = searchRapidAPI(it); isLoading = false }
+                    scope.launch { results = searchSpotifyAPI(it); isLoading = false }
                 } else results = emptyList()
             },
             modifier = Modifier.fillMaxWidth().shadow(10.dp, RoundedCornerShape(30.dp)).clip(RoundedCornerShape(30.dp)),
-            placeholder = { Text("Előadó vagy dal címe...", color = Color.Gray) },
+            placeholder = { Text("Keress dalt vagy előadót a Spotify-on...", color = Color.Gray) },
             leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
             singleLine = true,
-            colors = TextFieldDefaults.colors(focusedContainerColor = Color(0xFF1E1E35), unfocusedContainerColor = Color(0xFF1E1E35), focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
+            colors = TextFieldDefaults.colors(focusedContainerColor = Color(0xFF1E2822), unfocusedContainerColor = Color(0xFF1E2822), focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
         )
         Spacer(modifier = Modifier.height(20.dp))
 
@@ -522,7 +496,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
 @Composable
 fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF161625)).clickable { onClick() }.padding(12.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF16221B)).clickable { onClick() }.padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150" }, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)))
@@ -532,9 +506,9 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
             Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF1DB954).copy(alpha=0.2f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text("🎵", fontSize = 10.sp)
+                Text("🎧", fontSize = 10.sp)
                 Spacer(Modifier.width(4.dp))
-                Text("YouTube HQ", fontSize = 10.sp, color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
+                Text("Spotify Engine", fontSize = 10.sp, color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
             }
         }
         if (onSave != null) { IconButton(onClick = onSave) { Text("❤️", fontSize = 22.sp) } }
@@ -587,7 +561,7 @@ fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onCli
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     LaunchedEffect(song) { while (true) { isPlaying = exoPlayer.isPlaying; delay(300) } }
 
-    Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).shadow(15.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)).background(Color(0xFF202030)).clickable { onClick() }) {
+    Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).shadow(15.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1E2D24)).clickable { onClick() }) {
         if (isBuffering) LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(2.dp).align(Alignment.BottomCenter), color = MaterialTheme.colorScheme.primary)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
             AsyncImage(model = song.coverUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)))
@@ -624,7 +598,7 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF2C2C40), Color(0xFF05050B))))
+            .background(Brush.verticalGradient(listOf(Color(0xFF1A3526), Color(0xFF05050B))))
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -634,7 +608,7 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onDismiss) { Text("▼", color = Color.White, fontSize = 24.sp) }
-            Text("MOST JÁTSZOTT", color = Color.Gray, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+            Text("SPOTIFY TRACK", color = Color.Gray, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
             IconButton(onClick = { }) { Text("⋮", color = Color.White, fontSize = 24.sp) }
         }
         Spacer(Modifier.height(16.dp))
@@ -673,8 +647,6 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
                 inactiveTrackColor = Color.Gray.copy(alpha = 0.3f)
             )
         )
-        
-        // --- INNENTŐL HIÁNYZOTT A KÓDOD ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -683,8 +655,6 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             Text(formatDuration(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
         }
         Spacer(Modifier.height(16.dp))
-        
-        // JAVÍTOTT GOMBOK RÉSZE
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -705,26 +675,24 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             ) {
                 Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
             }
-            IconButton(onClick = { /* Következő dal logika */ }) {
+            IconButton(onClick = { }) {
                 Text("⏭", fontSize = 28.sp, color = Color.White)
             }
         }
-        Spacer(Modifier.height(32.dp))
-        
-        // Dalszöveg megjelenítése
+        Spacer(Modifier.height(24.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF161625))
+                .background(Color(0xFF14241B))
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
             Text(
                 text = lyrics,
                 color = Color.LightGray,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -732,7 +700,6 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
     }
 }
 
-// Segédfüggvény az idő formázásához
 fun formatDuration(durationMs: Long): String {
     val totalSeconds = durationMs / 1000
     val minutes = totalSeconds / 60
