@@ -39,8 +39,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel // 2. LÉPÉS: ViewModel import
-import androidx.media3.common.Player // Módosított Media3 import
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -84,7 +87,35 @@ data class UpdateInfo(
     val releaseNotes: String
 )
 
-// ========== YOUTUBE / PIPED TELJES AUDIO MOTOR (ROBUSZTUSABB VÁLTOZAT) ==========
+// ========== PLAYER VIEWMODEL ==========
+class PlayerViewModel : ViewModel() {
+    var player: ExoPlayer? = null
+        private set
+
+    fun initPlayer(context: Context) {
+        if (player == null) {
+            player = ExoPlayer.Builder(context.applicationContext).build()
+        }
+    }
+
+    fun playAudio(url: String) {
+        player?.apply {
+            stop()
+            clearMediaItems()
+            setMediaItem(MediaItem.fromUri(url))
+            prepare()
+            play()
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        player?.release()
+        player = null
+    }
+}
+
+// ========== YOUTUBE / PIPED TELJES AUDIO MOTOR ==========
 suspend fun fetchFullYoutubeAudioUrl(artist: String, title: String): String = withContext(Dispatchers.IO) {
     val client = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -94,7 +125,6 @@ suspend fun fetchFullYoutubeAudioUrl(artist: String, title: String): String = wi
     val cleanTitle = title.replace(Regex("\\(.*?\\)|\\[.*?\\]"), "").trim()
     val searchQuery = URLEncoder.encode("$artist $cleanTitle audio", "UTF-8")
     
-    // Több megbízhatóbb nyilvános Piped szerver listája tartalékként
     val pipedInstances = listOf(
         "https://pipedapi.kavin.rocks",
         "https://pipedapi.yt.artemislena.eu",
@@ -216,7 +246,6 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
     return@withContext emptyList()
 }
 
-// Spotify Dalszöveg lekérése
 suspend fun fetchSpotifyLyrics(trackId: String): String? = withContext(Dispatchers.IO) {
     if (trackId.isEmpty()) return@withContext "Dalszöveg nem érhető el."
     
@@ -281,7 +310,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         auth = FirebaseAuth.getInstance()
         setContent {
-            // 2. LÉPÉS: PlayerViewModel inicializálása és elindítása
             val context = LocalContext.current
             val playerViewModel: PlayerViewModel = viewModel()
             playerViewModel.initPlayer(context)
@@ -292,7 +320,6 @@ class MainActivity : ComponentActivity() {
                 primary = Color(0xFF1DB954),
                 secondary = Color(0xFF8A2BE2)
             )) {
-                // Átadjuk a ViewModel-t az AppRoot-nak
                 AppRoot(activity = this, clientId = WEB_CLIENT_ID, auth = auth, playerViewModel = playerViewModel)
             }
         }
@@ -327,7 +354,7 @@ fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth, p
         when (screen) {
             "LOGIN" -> LoginScreen(activity, clientId, auth, { currentScreen = "HOME" }, { currentScreen = "PHONE_LOGIN" })
             "PHONE_LOGIN" -> PhoneLoginScreen(activity, auth, { currentScreen = "LOGIN" }, { currentScreen = "HOME" })
-            "HOME" -> HomeScreen(auth = auth, playerViewModel = playerViewModel) // Továbbadjuk a HomeScreen-nek
+            "HOME" -> HomeScreen(auth = auth, playerViewModel = playerViewModel)
         }
     }
 }
@@ -335,7 +362,7 @@ fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth, p
 suspend fun checkForUpdates(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
     try {
         val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).build()
-        val jsonUrl = "https://raw.githubusercontent.com/felhasznalo/projekt/main/version.json" // Cseréld ki a valós linkre, ha kész
+        val jsonUrl = "https://raw.githubusercontent.com/felhasznalo/projekt/main/version.json"
         val request = Request.Builder().url(jsonUrl).build()
         val response = client.newCall(request).execute()
         val json = JSONObject(response.body?.string() ?: "")
@@ -469,18 +496,14 @@ fun HomeScreen(auth: FirebaseAuth, playerViewModel: PlayerViewModel) {
         isBuffering = true
         lyricsText = "Dalszöveg betöltése..."
         
-        // 3. LÉPÉS: Lejátszás a ViewModel-en keresztül
         scope.launch {
-            // 1. Dalszöveg betöltése
             launch(Dispatchers.IO) {
                 lyricsText = fetchSpotifyLyrics(song.id) ?: "Dalszöveg nem érhető el."
             }
 
-            // 2. Audio stream URL lekérése
             val fullAudioStreamUrl = fetchFullYoutubeAudioUrl(song.artist, song.title)
 
             if (fullAudioStreamUrl.isNotBlank()) {
-                // A háttérszolgáltatás felé küldjük a parancsot
                 playerViewModel.playAudio(fullAudioStreamUrl)
             } else {
                 Toast.makeText(context, "Hiba a lejátszási hivatkozás betöltésekor.", Toast.LENGTH_SHORT).show()
@@ -630,7 +653,6 @@ fun ProfileScreen(auth: FirebaseAuth) {
 fun MiniPlayer(song: LiveSong, player: Player?, isBuffering: Boolean, onClick: () -> Unit) {
     var isPlaying by remember { mutableStateOf(player?.isPlaying == true) }
     
-    // Figyeljük a háttérszolgáltatás lejátszójának állapotát
     LaunchedEffect(player) { 
         while (true) { 
             isPlaying = player?.isPlaying == true
@@ -656,7 +678,6 @@ fun MiniPlayer(song: LiveSong, player: Player?, isBuffering: Boolean, onClick: (
     }
 }
 
-// Befejezett, javított FullPlayerScreen
 @Composable
 fun FullPlayerScreen(song: LiveSong, player: Player?, lyrics: String, onDismiss: () -> Unit) {
     var isPlaying by remember { mutableStateOf(player?.isPlaying == true) }
@@ -680,11 +701,9 @@ fun FullPlayerScreen(song: LiveSong, player: Player?, lyrics: String, onDismiss:
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Húzó sáv (Vizuális elem)
         Box(modifier = Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.Gray))
         Spacer(Modifier.height(24.dp))
 
-        // Albumborító
         AsyncImage(
             model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400" },
             contentDescription = null,
@@ -693,13 +712,11 @@ fun FullPlayerScreen(song: LiveSong, player: Player?, lyrics: String, onDismiss:
         )
         Spacer(Modifier.height(24.dp))
 
-        // Cím és előadó
         Text(song.title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(8.dp))
         Text(song.artist, fontSize = 18.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(24.dp))
 
-        // Keresősáv (Slider)
         Slider(
             value = position,
             onValueChange = { 
@@ -717,7 +734,6 @@ fun FullPlayerScreen(song: LiveSong, player: Player?, lyrics: String, onDismiss:
             )
         )
 
-        // Időbélyegzők
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(position.toLong()), color = Color.LightGray, fontSize = 12.sp)
             Text(formatTime(duration.toLong()), color = Color.LightGray, fontSize = 12.sp)
@@ -725,7 +741,6 @@ fun FullPlayerScreen(song: LiveSong, player: Player?, lyrics: String, onDismiss:
 
         Spacer(Modifier.height(16.dp))
 
-        // Irányítógombok
         Row(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
@@ -751,7 +766,6 @@ fun FullPlayerScreen(song: LiveSong, player: Player?, lyrics: String, onDismiss:
         
         Spacer(Modifier.height(24.dp))
 
-        // Dalszöveg (Görgethető)
         Box(
             modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF16221B)).padding(16.dp)
         ) {
@@ -768,7 +782,6 @@ fun FullPlayerScreen(song: LiveSong, player: Player?, lyrics: String, onDismiss:
     }
 }
 
-// Segédfüggvény az idő formázásához
 fun formatTime(ms: Long): String {
     val totalSeconds = ms / 1000
     val minutes = totalSeconds / 60
