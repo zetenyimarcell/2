@@ -446,37 +446,79 @@ suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatch
     return@withContext emptyList()
 }
 
+// ========== INTELIGENS LETÖLTÉS / LEJÁTSZÁS KEZELŐ ==========
 suspend fun fetchAudioStreamRapidAPI(trackIdOrUrl: String): String? = withContext(Dispatchers.IO) {
     val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
     val encodedId = URLEncoder.encode(trackIdOrUrl, "UTF-8")
     
-    // A lejátszáshoz egy Video Details / Audio Downloader végpont kell az API-ból. 
-    // Általában ez így néz ki: /v2/video/details vagy /v2/video/download
-    val url = "https://$RAPIDAPI_HOST/v2/video/details?videoId=$encodedId"
+    // Több lehetséges végpontot is megpróbálunk, amit a YouTube Media Downloader használni szokott
+    val endpoints = listOf(
+        "https://$RAPIDAPI_HOST/v2/video/details?videoId=$encodedId",
+        "https://$RAPIDAPI_HOST/dl?id=$encodedId",
+        "https://$RAPIDAPI_HOST/download?videoId=$encodedId"
+    )
 
-    val request = Request.Builder()
-        .url(url)
-        .addHeader("X-RapidAPI-Key", RAPIDAPI_KEY)
-        .addHeader("X-RapidAPI-Host", RAPIDAPI_HOST)
-        .build()
+    for (url in endpoints) {
+        try {
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("X-RapidAPI-Key", RAPIDAPI_KEY)
+                .addHeader("X-RapidAPI-Host", RAPIDAPI_HOST)
+                .build()
 
-    try {
-        val response = client.newCall(request).execute()
-        if (response.isSuccessful) {
-            val body = response.body?.string() ?: return@withContext null
-            val json = JSONObject(body)
-            
-            // Ha közvetlen audio listát ad vissza
-            val audios = json.optJSONArray("audios") ?: json.optJSONArray("formats")
-            if (audios != null && audios.length() > 0) {
-                return@withContext audios.getJSONObject(0).optString("url", null)
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body?.string() ?: continue
+                val json = JSONObject(body)
+                
+                // Automatikusan átkutatjuk a JSON-t bármilyen lejátszható link után
+                val directUrl = extractUrlFromJson(json)
+                if (!directUrl.isNullOrEmpty()) {
+                    return@withContext directUrl
+                }
             }
-            return@withContext json.optString("link", json.optString("download_url", json.optString("url", null)))
-        }
-    } catch (_: Exception) {}
+        } catch (_: Exception) {}
+    }
     return@withContext null
 }
 
+// Segédfüggvény, ami tetszőleges JSON válaszból kikeresi a http(s) linket
+private fun extractUrlFromJson(json: JSONObject): String? {
+    // 1. Megnézzük a leggyakoribb közvetlen kulcsokat
+    listOf("link", "url", "download_url", "audio", "streaming_url").forEach { key ->
+        if (json.has(key)) {
+            val value = json.optString(key, "")
+            if (value.startsWith("http")) return value
+        }
+    }
+    
+    // 2. Megnézzük a tömböket (pl. formátumok, audiók listája)
+    listOf("audios", "formats", "links", "medias", "muxed").forEach { arrayKey ->
+        val arr = json.optJSONArray(arrayKey)
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val item = arr.opt(i)
+                if (item is JSONObject) {
+                    val subUrl = extractUrlFromJson(item)
+                    if (!subUrl.isNullOrEmpty()) return subUrl
+                } else if (item is String && item.startsWith("http")) {
+                    return item
+                }
+            }
+        }
+    }
+    
+    // 3. Megnézzük a beágyazott objektumokat is
+    listOf("data", "result", "body", "video").forEach { objKey ->
+        val obj = json.optJSONObject(objKey)
+        if (obj != null) {
+            val subUrl = extractUrlFromJson(obj)
+            if (!subUrl.isNullOrEmpty()) return subUrl
+        }
+    }
+    
+    return null
+}
 @Composable
 fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     val scope = rememberCoroutineScope()
