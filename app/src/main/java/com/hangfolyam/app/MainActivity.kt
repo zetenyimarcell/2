@@ -85,6 +85,28 @@ data class UpdateInfo(
     val releaseNotes: String
 )
 
+// ========== DEEZER TARTALÉK HANGMOTOR ==========
+// Ha a Spotify nem ad preview URL-t, lekérjük a Deezer ingyenes adatbázisából az MP3 mintát
+suspend fun fetchFallbackPreviewUrl(artist: String, title: String): String = withContext(Dispatchers.IO) {
+    val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).build()
+    val query = URLEncoder.encode("$artist $title", "UTF-8")
+    val url = "https://api.deezer.com/search?q=$query"
+    val request = Request.Builder().url(url).build()
+
+    try {
+        val response = client.newCall(request).execute()
+        if (response.isSuccessful) {
+            val body = response.body?.string() ?: return@withContext ""
+            val json = JSONObject(body)
+            val data = json.optJSONArray("data")
+            if (data != null && data.length() > 0) {
+                return@withContext data.getJSONObject(0).optString("preview", "")
+            }
+        }
+    } catch (_: Exception) {}
+    return@withContext ""
+}
+
 // ========== SPOTIFY KERESŐMOTOR ==========
 suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
     if (query.trim().isEmpty()) return@withContext emptyList()
@@ -116,7 +138,6 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                 val trackId = rawId.substringAfterLast(":")
                 val title = data.optString("name", "Ismeretlen dal")
                 
-                // Előadó kiolvasása
                 var artistName = "Ismeretlen előadó"
                 val artistsObj = data.optJSONObject("artists")
                 if (artistsObj != null) {
@@ -126,7 +147,6 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                     }
                 }
 
-                // Borítókép kiolvasása
                 var coverUrl = ""
                 val albumObj = data.optJSONObject("albumOfTrack") ?: data.optJSONObject("album")
                 val coverArt = albumObj?.optJSONObject("coverArt")?.optJSONArray("sources")
@@ -134,7 +154,6 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                     coverUrl = coverArt.getJSONObject(0).optString("url", "")
                 }
 
-                // Audio Preview URL kiolvasása (több lehetséges helyről a JSON-ban)
                 var previewUrl = ""
                 val audioPreview = data.optJSONObject("audioPreview")
                 if (audioPreview != null) {
@@ -161,7 +180,7 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
     return@withContext emptyList()
 }
 
-// Spotify Dalszöveg lekérése a RapidAPI-ról
+// Spotify Dalszöveg lekérése
 suspend fun fetchSpotifyLyrics(trackId: String): String? = withContext(Dispatchers.IO) {
     if (trackId.isEmpty()) return@withContext "Dalszöveg nem érhető el."
     
@@ -411,21 +430,27 @@ fun HomeScreen(auth: FirebaseAuth) {
         isBuffering = true
         lyricsText = "Dalszöveg betöltése..."
         
-        // Leállítjuk és töröljük a korábban betöltött zenét
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
 
         scope.launch {
+            // 1. Spotify Dalszöveg lekérése
             launch(Dispatchers.IO) {
                 lyricsText = fetchSpotifyLyrics(song.id) ?: "Dalszöveg nem érhető el."
             }
 
-            if (song.streamUrl.isNotBlank()) {
-                exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
+            // 2. Lejátszási URL meglétének ellenőrzése / tartalék keresése Deezeren
+            var finalStreamUrl = song.streamUrl
+            if (finalStreamUrl.isBlank()) {
+                finalStreamUrl = fetchFallbackPreviewUrl(song.artist, song.title)
+            }
+
+            if (finalStreamUrl.isNotBlank()) {
+                exoPlayer.setMediaItem(MediaItem.fromUri(finalStreamUrl))
                 exoPlayer.prepare()
                 exoPlayer.play()
             } else {
-                Toast.makeText(context, "Ehhez a dalhoz a Spotify nem biztosít minta streamet.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Nem található lejátszható minta ehhez a dalhoz.", Toast.LENGTH_SHORT).show()
             }
             isBuffering = false
         }
