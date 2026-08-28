@@ -1,6 +1,5 @@
 package com.hangfolyam.app
 
-import androidx.compose.ui.draw.scale
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -31,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -127,7 +127,7 @@ fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
     }
 }
 
-// ========== BEJELENTKEZÉS KÉPERNYŐK (Röviden, optimalizálva) ==========
+// ========== BEJELENTKEZÉS KÉPERNYŐK ==========
 @Composable
 fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAuth, onLoggedIn: () -> Unit, onPhoneClick: () -> Unit) {
     val context = LocalContext.current
@@ -140,8 +140,7 @@ fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAut
                 .addOnCompleteListener { if (it.isSuccessful) onLoggedIn() else isLoading = false }
         } catch (e: Exception) {
             isLoading = false
-            Toast.makeText(context, "Bejelentkezve!", Toast.LENGTH_SHORT).show()
-            onLoggedIn()
+            Toast.makeText(context, "Hiba a bejelentkezés során!", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -172,9 +171,11 @@ fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAut
 
 @Composable
 fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: () -> Unit, onSuccess: () -> Unit) {
-    var phone by remember { mutableStateOf("") }; var sms by remember { mutableStateOf("") }
-    var codeSent by remember { mutableStateOf(false) }; var vId by remember { mutableStateOf<String?>(null) }
-    
+    var phone by remember { mutableStateOf("") }
+    var sms by remember { mutableStateOf("") }
+    var codeSent by remember { mutableStateOf(false) }
+    var vId by remember { mutableStateOf<String?>(null) }
+
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF05050B)).padding(32.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(if (!codeSent) "Telefonszámod" else "SMS Kód", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -215,8 +216,7 @@ fun HomeScreen(auth: FirebaseAuth) {
     var currentlyPlaying by remember { mutableStateOf<LiveSong?>(null) }
     var isBuffering by remember { mutableStateOf(false) }
     var lyricsText by remember { mutableStateOf("Dalszöveg keresése...") }
-    
-    // Bottom Sheet a Full Playerhez
+
     var isPlayerExpanded by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -227,12 +227,10 @@ fun HomeScreen(auth: FirebaseAuth) {
         isBuffering = true
         lyricsText = "Dalszöveg keresése..."
         scope.launch {
-            // Dalszöveg lekérése a háttérben
             launch(Dispatchers.IO) {
                 lyricsText = fetchLyrics(song.artist, song.title) ?: "Dalszöveg nem található ehhez a dalhoz."
             }
-            
-            // Audio lekérése
+
             val playUrl = if (song.streamUrl.startsWith("yt:")) getYouTubeAudioStream(song.streamUrl.removePrefix("yt:")) ?: "" else song.streamUrl
             if (playUrl.isNotEmpty()) {
                 exoPlayer.setMediaItem(MediaItem.fromUri(playUrl))
@@ -246,13 +244,11 @@ fun HomeScreen(auth: FirebaseAuth) {
     Scaffold(
         bottomBar = {
             Column {
-                // Mini Player
                 AnimatedVisibility(visible = currentlyPlaying != null && !isPlayerExpanded, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
                     currentlyPlaying?.let { song ->
                         MiniPlayer(song, exoPlayer, isBuffering) { isPlayerExpanded = true }
                     }
                 }
-                // Navigáció
                 NavigationBar(containerColor = Color(0xFF0F0F1A), contentColor = Color.White) {
                     NavigationBarItem(selected = currentTab == "SEARCH", onClick = { currentTab = "SEARCH" }, icon = { Icon(Icons.Default.Search, null) }, label = { Text("Felfedezés") })
                     NavigationBarItem(selected = currentTab == "RECOGNIZE", onClick = { currentTab = "RECOGNIZE" }, icon = { Text("🎤", fontSize = 18.sp) }, label = { Text("Felismerés") })
@@ -264,14 +260,13 @@ fun HomeScreen(auth: FirebaseAuth) {
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(listOf(Color(0xFF121225), Color(0xFF05050B))))) {
             when (currentTab) {
-                "SEARCH" -> SearchScreen({ playSong(it) }, { scope.launch { repo.add(it); Toast.makeText(context, "Mentve!", Toast.LENGTH_SHORT).show() } })
+                "SEARCH" -> SearchScreen({ playSong(it) }, { scope.launch { repo.add(it); Toast.makeText(context, "Mentve a kedvencekhez!", Toast.LENGTH_SHORT).show() } })
                 "RECOGNIZE" -> RecognizeScreen { playSong(it) }
                 "COLLECTION" -> CollectionScreen(repo) { playSong(it) }
                 "PROFILE" -> ProfileScreen(auth)
             }
         }
 
-        // FULL SCREEN PLAYER (ModalBottomSheet)
         if (isPlayerExpanded && currentlyPlaying != null) {
             ModalBottomSheet(
                 onDismissRequest = { isPlayerExpanded = false },
@@ -285,7 +280,7 @@ fun HomeScreen(auth: FirebaseAuth) {
     }
 }
 
-// ========== 1. PRÉMIUM TRIPLA KERESŐ MOTOR KÉPERNYŐ ==========
+// ========== KERESŐ KÉPERNYŐ ==========
 @Composable
 fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -323,7 +318,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     }
 }
 
-// ========== ZENE LISTASOR (Forrás jelvénnyel) ==========
+// ========== ZENE LISTASOR ==========
 @Composable
 fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     Row(
@@ -336,7 +331,6 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
             Text(song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
-            // Source Badge
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.DarkGray.copy(alpha=0.5f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
                 Text(when(song.source) { "iTunes" -> "🍎" "Deezer" -> "🎧" else -> "📺" }, fontSize = 10.sp)
                 Spacer(Modifier.width(4.dp))
@@ -363,17 +357,18 @@ fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onCli
                 Text(song.artist, fontSize = 12.sp, color = Color.Gray, maxLines = 1)
             }
             IconButton(onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() }) {
-                Icon(if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp)) // Close helyett Pause kellene ikonban, de kompromisszum
+                Text(if (isPlaying) "⏸" else "▶", fontSize = 20.sp, color = Color.White)
             }
         }
     }
 }
 
-// ========== PRÉMIUM TELJES KÉPERNYŐS LEJÁTSZÓ & DALSZÖVEG ==========
+// ========== TELJES KÉPERNYŐS LEJÁTSZÓ ==========
 @Composable
 fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDismiss: () -> Unit) {
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
-    var position by remember { mutableStateOf(0f) }; var duration by remember { mutableStateOf(1f) }
+    var position by remember { mutableStateOf(0f) }
+    var duration by remember { mutableStateOf(1f) }
     var seeking by remember { mutableStateOf(false) }
 
     LaunchedEffect(song) {
@@ -385,28 +380,24 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2C2C40), Color(0xFF05050B)))).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        // Fejléc
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onDismiss) { Text("▼", color = Color.White, fontSize = 24.sp) }
             Text("MOST JÁTSZOTT", color = Color.Gray, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
-            IconButton(onClick = { /* Menü */ }) { Text("⋮", color = Color.White, fontSize = 24.sp) }
+            IconButton(onClick = { }) { Text("⋮", color = Color.White, fontSize = 24.sp) }
         }
         Spacer(Modifier.height(32.dp))
         
-        // Nagy Borító (Animált)
         val infiniteTransition = rememberInfiniteTransition()
         val scale by infiniteTransition.animateFloat(initialValue = 0.98f, targetValue = 1.02f, animationSpec = infiniteRepeatable(animation = tween(2000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse))
         AsyncImage(model = song.coverUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(300.dp).scale(if(isPlaying) scale else 1f).shadow(30.dp, RoundedCornerShape(20.dp)).clip(RoundedCornerShape(20.dp)))
         
         Spacer(Modifier.height(40.dp))
         
-        // Cím és Előadó
         Text(song.title, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         Text(song.artist, fontSize = 18.sp, color = Color.LightGray, maxLines = 1)
         
         Spacer(Modifier.height(24.dp))
         
-        // Keresősáv
         Slider(
             value = position, valueRange = 0f..duration,
             onValueChange = { seeking = true; position = it },
@@ -418,7 +409,6 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             Text(formatTime(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
         }
         
-        // Kontroll gombok
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             Text("⏮", fontSize = 32.sp, color = Color.White)
             Box(modifier = Modifier.size(70.dp).background(MaterialTheme.colorScheme.primary, CircleShape).clickable { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() }, contentAlignment = Alignment.Center) {
@@ -429,7 +419,6 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
 
         Spacer(Modifier.height(24.dp))
 
-        // Dalszöveg Kártya
         Card(modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35).copy(alpha=0.8f))) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
                 Text("Dalszöveg", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -447,28 +436,168 @@ fun formatTime(ms: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
-// ========== TOVÁBBI KÉPERNYŐK (Felismerő, Gyűjtemény, Profil) ==========
+// ========== 2. ZENEFELISMERŐ KÉPERNYŐ ==========
 @Composable
 fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
-    /* Ugyanaz mint eddig, formázva */
-    Text("🎤 Zenefelismerés hamarosan újra!", color = Color.White)
+    var isListening by remember { mutableStateOf(false) }
+    val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(animation = tween(1000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        label = "PulseScale"
+    )
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Zenefelismerés", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            if (isListening) "Környezeti hangok elemzése..." else "Koppints a gombra a felismeréshez",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+        Spacer(modifier = Modifier.height(64.dp))
+
+        Box(
+            modifier = Modifier
+                .size(160.dp)
+                .scale(if (isListening) pulseScale else 1f)
+                .shadow(24.dp, CircleShape)
+                .clip(CircleShape)
+                .background(if (isListening) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary)
+                .clickable { isListening = !isListening },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("🎤", fontSize = 64.sp)
+        }
+
+        Spacer(modifier = Modifier.height(48.dp))
+        if (isListening) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        }
+    }
 }
+
+// ========== 3. GYŰJTEMÉNY KÉPERNYŐ ==========
 @Composable
 fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
-    /* Ugyanaz mint eddig, SongRow-val meghívva */
-    Text("❤️ Gyűjtemény hamarosan", color = Color.White)
+    var favorites by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        favorites = repo.getAll()
+        isLoading = false
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Spacer(modifier = Modifier.height(24.dp))
+        Text("Kedvencek", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+        } else if (favorites.isEmpty()) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                Text("Még nincsenek elmentett számaid.", color = Color.Gray, fontSize = 16.sp)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                items(favorites) { song ->
+                    SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
+                }
+            }
+        }
+    }
 }
+
+// ========== 4. PROFIL KÉPERNYŐ ==========
 @Composable
 fun ProfileScreen(auth: FirebaseAuth) {
-    /* Ugyanaz mint eddig (QR kóddal) */
-    Text("👤 Profil hamarosan", color = Color.White)
+    val user = auth.currentUser
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .shadow(12.dp, CircleShape)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.secondary),
+            contentAlignment = Alignment.Center
+        ) {
+            if (user?.photoUrl != null) {
+                AsyncImage(
+                    model = user.photoUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(Icons.Default.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(50.dp))
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = user?.displayName ?: "Nova Premium Felhasználó",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+        Text(
+            text = user?.email ?: user?.phoneNumber ?: "Vendég fiók",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35))
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("FIÓK STÁTUSZ", color = Color.Gray, fontSize = 12.sp, letterSpacing = 1.5.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("Nova Premium VIP", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        }
+
+        Spacer(Modifier.height(48.dp))
+
+        Button(
+            onClick = {
+                auth.signOut()
+                Toast.makeText(context, "Sikeres kijelentkezés!", Toast.LENGTH_SHORT).show()
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            shape = RoundedCornerShape(25.dp)
+        ) {
+            Icon(Icons.Default.ExitToApp, contentDescription = null, tint = Color.White)
+            Spacer(Modifier.width(8.dp))
+            Text("Kijelentkezés", fontWeight = FontWeight.Bold, color = Color.White)
+        }
+    }
 }
 
 // =====================================================================
-// ================= API-K ÉS KERESŐ LOGIKA (A LÉNYEG) =================
+// ================= API-K ÉS KERESŐ LOGIKA ============================
 // =====================================================================
 
-// 1. DALSZÖVEG LEKÉRŐ (Lyrics.ovh API)
 suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
     try {
         val safeArtist = URLEncoder.encode(artist, "UTF-8")
@@ -480,21 +609,17 @@ suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Di
     } catch (e: Exception) { null }
 }
 
-// 2. MULTI-ENGINE PÁRHUZAMOS KERESŐ
 suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
     val encoded = URLEncoder.encode(query, "UTF-8")
     
-    // Párhuzamosan indítjuk a három keresőt (Villámgyors lesz!)
     val itunesTask = async { searchItunes(encoded) }
     val deezerTask = async { searchDeezer(encoded) }
     val pipedTask = async { searchPiped(encoded) }
 
-    // Megvárjuk mindet és egyesítjük
     val allResults = try {
         listOf(itunesTask, deezerTask, pipedTask).awaitAll().flatten()
     } catch (e: Exception) { emptyList() }
 
-    // Duplikációk szűrése (Cím és Előadó alapján) és randomizálás
     allResults.distinctBy { (it.title.lowercase() + it.artist.lowercase()).replace(" ", "") }
 }
 
@@ -581,10 +706,43 @@ suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispat
     null
 }
 
-// ========== ADATBÁZIS ==========
+// ========== 5. FIRESTORE ADATBÁZIS MEGVALÓSÍTÁS ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
-    suspend fun add(song: LiveSong) { /* Firebase Mentés */ }
-    suspend fun getAll(): List<LiveSong> { return emptyList() }
+
+    suspend fun add(song: LiveSong) {
+        val userId = auth.currentUser?.uid ?: return
+        val songData = mapOf(
+            "id" to song.id,
+            "title" to song.title,
+            "artist" to song.artist,
+            "coverUrl" to song.coverUrl,
+            "streamUrl" to song.streamUrl,
+            "source" to song.source,
+            "timestamp" to System.currentTimeMillis()
+        )
+        db.collection("users").document(userId).collection("favorites")
+            .document(song.id).set(songData).await()
+    }
+
+    suspend fun getAll(): List<LiveSong> {
+        val userId = auth.currentUser?.uid ?: return emptyList()
+        return try {
+            val snapshot = db.collection("users").document(userId).collection("favorites")
+                .get().await()
+            snapshot.documents.mapNotNull { doc ->
+                LiveSong(
+                    id = doc.getString("id") ?: doc.id,
+                    title = doc.getString("title") ?: "",
+                    artist = doc.getString("artist") ?: "",
+                    coverUrl = doc.getString("coverUrl") ?: "",
+                    streamUrl = doc.getString("streamUrl") ?: "",
+                    source = doc.getString("source") ?: "Ismeretlen"
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
 }
