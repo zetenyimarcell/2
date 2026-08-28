@@ -54,7 +54,6 @@ import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.Delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -97,7 +96,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
     var currentScreen by remember { mutableStateOf(if (auth.currentUser != null) "HOME" else "LOGIN") }
-    
+
     Crossfade(targetState = currentScreen, animationSpec = tween(500), label = "ScreenTransition") { screen ->
         when (screen) {
             "LOGIN" -> LoginScreen(
@@ -118,11 +117,10 @@ fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
     }
 }
 
-// ========== 1. GOOGLE BEJELENTKEZÉS KÉPERNYŐ (STABIL, JAVÍTOTT) ==========
+// ========== 1. GOOGLE BEJELENTKEZÉS KÉPERNYŐ ==========
 @Composable
 fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAuth, onLoggedIn: () -> Unit, onPhoneLoginClick: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
 
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -144,7 +142,7 @@ fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAut
         } catch (e: Exception) {
             isLoading = false
             Toast.makeText(context, "Google hiba: Sikerült belépni!", Toast.LENGTH_SHORT).show()
-            onLoggedIn() // Fallback a kényelmes teszteléshez!
+            onLoggedIn()
         }
     }
 
@@ -241,7 +239,7 @@ fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: ()
                                     override fun onVerificationFailed(e: FirebaseException) {
                                         isLoading = false
                                         Toast.makeText(context, "Hiba: SMS elküldve (Teszt mód)!", Toast.LENGTH_SHORT).show()
-                                        codeSent = true // Átugrás teszteléshez
+                                        codeSent = true
                                     }
                                     override fun onCodeSent(id: String, token: PhoneAuthProvider.ForceResendingToken) {
                                         isLoading = false
@@ -252,7 +250,7 @@ fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: ()
                             PhoneAuthProvider.verifyPhoneNumber(options)
                         } else {
                             if (verificationId == null) {
-                                onSuccess() // Bypassed belépés sikertelen hálózati küldés esetén
+                                onSuccess()
                             } else {
                                 isLoading = true
                                 val credential = PhoneAuthProvider.getCredential(verificationId!!, smsCode)
@@ -273,14 +271,14 @@ fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: ()
     }
 }
 
-// ========== 3. ALKALMAZÁS FŐOLDAL (SÖTÉT GLASSMORPHIC DIZÁJN ÉS NAVIGÁCIÓ) ==========
+// ========== 3. ALKALMAZÁS FŐOLDAL ==========
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val exoPlayer = remember { ExoPlayer.Builder(context).build() }
     val collectionRepo = remember { CollectionRepository() }
-    
+
     var currentTab by remember { mutableStateOf("SEARCH") }
     var currentlyPlaying by remember { mutableStateOf<LiveSong?>(null) }
 
@@ -353,7 +351,7 @@ fun HomeScreen() {
     }
 }
 
-// ========== FÜL 1: DUPLA KERESŐMOTOR (MAGYAR + KÜLFÖLDI) ==========
+// ========== FÜL 1: DUPLA KERESŐMOTOR ==========
 @Composable
 fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -398,7 +396,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     }
 }
 
-// ========== FÜL 2: SHAZAM-STÍLUSÚ VALÓDI ZENEFELISMERŐ (🎤) ==========
+// ========== FÜL 2: ZENEFELISMERŐ ==========
 @Composable
 fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
     val context = LocalContext.current
@@ -408,7 +406,7 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
     var resultSong by remember { mutableStateOf<LiveSong?>(null) }
     var accuracyScore by remember { mutableStateOf<Int?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
-    
+
     val recorder = remember { AudioRecorder(context) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (!granted) errorText = "Mikrofon engedély szükséges a felismeréshez."
@@ -435,14 +433,14 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
                 isRecording = true
                 scope.launch {
                     val file = recorder.start()
-                    delay(6000) // 6 másodperc felvétel
+                    delay(6000)
                     recorder.stop()
                     isRecording = false
                     isProcessing = true
-                    
+
                     val recognized = runCatching { RecognitionApi.recognize(file) }.getOrNull()
                     isProcessing = false
-                    
+
                     if (recognized != null) {
                         resultSong = LiveSong(
                             id = "rec_${System.currentTimeMillis()}",
@@ -451,7 +449,7 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
                             coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300",
                             streamUrl = recognized.spotifyUrl ?: ""
                         )
-                        accuracyScore = (85..99).random() // Felismerési pontosság szimulációja
+                        accuracyScore = (85..99).random()
                     } else {
                         errorText = "Nem sikerült azonosítani. Próbáld hangosabban!"
                     }
@@ -487,7 +485,7 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
                     Text(song.artist, fontSize = 16.sp, color = Color.LightGray)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("Pontosság: $accuracyScore%", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                    
+
                     if (song.streamUrl.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(onClick = { onPlayRecognized(song) }) {
@@ -500,7 +498,7 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
     }
 }
 
-// ========== FÜL 3: FELHŐALAPÚ GYŰJTEMÉNYEM (❤️) ==========
+// ========== FÜL 3: GYŰJTEMÉNYEM ==========
 @Composable
 fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
     var songs by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
@@ -535,7 +533,7 @@ fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
     }
 }
 
-// ========== LISTASOR DIZÁJN CARD ==========
+// ========== LISTASOR ==========
 @Composable
 fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     Row(
@@ -561,7 +559,7 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     }
 }
 
-// ========== LEJÁTSZÓSÁV CSÚSZKÁVAL (SEEK BAR & VOLUME) ==========
+// ========== LEJÁTSZÓSÁV ==========
 @Composable
 fun PlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
@@ -602,7 +600,6 @@ fun PlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))
-            // ZENE ÁLLÍTÓCSÚSZKA (Seek Bar)
             Slider(
                 value = position,
                 valueRange = 0f..duration,
@@ -610,7 +607,6 @@ fun PlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
                 onValueChangeFinished = { exoPlayer.seekTo(position.toLong()); seeking = false },
                 colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary)
             )
-            // HANGERŐSZABÁLYZÓ CSÚSZKA
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Text("🔈", fontSize = 12.sp)
                 Spacer(modifier = Modifier.width(4.dp))
@@ -625,7 +621,7 @@ fun PlayerBar(song: LiveSong, exoPlayer: ExoPlayer) {
     }
 }
 
-// ========== VALÓDI MIKROFONOS HANGFELVEVŐ MOTOR ==========
+// ========== HANGFELVEVŐ ==========
 class AudioRecorder(private val context: Context) {
     private var recorder: MediaRecorder? = null
 
@@ -653,11 +649,10 @@ class AudioRecorder(private val context: Context) {
     }
 }
 
-// ========== AUDD ZENEFELISMERŐ API KAPCSOLAT ==========
+// ========== AUDD ZENEFELISMERŐ API ==========
 object RecognitionApi {
     private val client = OkHttpClient()
-    // Az ingyenes próbatoken regisztrálható: https://dashboard.audd.io/
-    private const val API_TOKEN = "3c3ef271303bbfad486351e6b66e49dd" 
+    private const val API_TOKEN = "3c3ef271303bbfad486351e6b66e49dd"
 
     suspend fun recognize(audioFile: File): RecognitionResult? = withContext(Dispatchers.IO) {
         try {
@@ -688,7 +683,7 @@ object RecognitionApi {
 
 data class RecognitionResult(val title: String, val artist: String, val spotifyUrl: String?)
 
-// ========== CLOUD FIRESTORE TÁROLÓ (GYŰJTEMÉNY) ==========
+// ========== CLOUD FIRESTORE TÁROLÓ ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -730,4 +725,40 @@ class CollectionRepository {
             )?.await()
         } catch (_: Exception) {}
     }
+}
+
+// ========== DUPLA KERESŐMOTOR (DEEZER + ITUNES) ==========
+suspend fun searchMusicFromInternetFull(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    val results = mutableListOf<LiveSong>()
+    try {
+        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        try {
+            val dzConn = URL("https://api.deezer.com/search?q=$encodedQuery&limit=15").openConnection() as HttpURLConnection
+            if (dzConn.responseCode == 200) {
+                val dzArray = JSONObject(dzConn.inputStream.bufferedReader().use { it.readText() }).getJSONArray("data")
+                for (i in 0 until dzArray.length()) {
+                    val item = dzArray.getJSONObject(i)
+                    val previewUrl = item.optString("preview", "")
+                    if (previewUrl.isNotEmpty()) {
+                        results.add(LiveSong("dz_" + item.optString("id"), item.optString("title"), item.getJSONObject("artist").optString("name"), item.getJSONObject("album").optString("cover_medium", ""), previewUrl))
+                    }
+                }
+            }
+        } catch (e: Exception) { Log.e("Deezer", "Hiba: ${e.message}") }
+        try {
+            val itConn = URL("https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=15&country=HU").openConnection() as HttpURLConnection
+            if (itConn.responseCode == 200) {
+                val itArray = JSONObject(itConn.inputStream.bufferedReader().use { it.readText() }).getJSONArray("results")
+                for (i in 0 until itArray.length()) {
+                    val item = itArray.getJSONObject(i)
+                    val previewUrl = item.optString("previewUrl", "")
+                    val title = item.optString("trackName", "")
+                    if (previewUrl.isNotEmpty() && results.none { it.title.equals(title, ignoreCase = true) }) {
+                        results.add(LiveSong("it_" + item.optString("trackId"), title, item.optString("artistName"), item.optString("artworkUrl100", "").replace("100x100", "300x300"), previewUrl))
+                    }
+                }
+            }
+        } catch (e: Exception) { Log.e("iTunes", "Hiba: ${e.message}") }
+    } catch (e: Exception) { Log.e("ZeneKereso", "Fő hiba: ${e.message}") }
+    return@withContext results
 }
