@@ -59,17 +59,12 @@ import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.net.URLEncoder
@@ -91,6 +86,59 @@ data class UpdateInfo(
     val apkUrl: String,
     val releaseNotes: String
 )
+
+// ========== HIÁNYZÓ REPOSITORY ÉS SEGÉdek ==========
+class CollectionRepository {
+    private val db = FirebaseFirestore.getInstance()
+    private val auth = FirebaseAuth.getInstance()
+
+    suspend fun add(song: LiveSong) {
+        val uid = auth.currentUser?.uid ?: return
+        try {
+            db.collection("users").document(uid).collection("favorites").document(song.id.ifEmpty { song.title }).set(song).await()
+        } catch (_: Exception) {}
+    }
+
+    suspend fun getFavorites(): List<LiveSong> {
+        val uid = auth.currentUser?.uid ?: return emptyList()
+        return try {
+            val snapshot = db.collection("users").document(uid).collection("favorites").get().await()
+            snapshot.toObjects(LiveSong::class.java)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+}
+
+suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
+    try {
+        val client = OkHttpClient()
+        val encodedArtist = URLEncoder.encode(artist, "UTF-8")
+        val encodedTitle = URLEncoder.encode(title, "UTF-8")
+        val url = "https://api.lyrics.ovh/v1/$encodedArtist/$encodedTitle"
+        val request = Request.Builder().url(url).build()
+        val response = client.newCall(request).execute()
+        val body = response.body?.string()
+        if (response.isSuccessful && body != null) {
+            val json = JSONObject(body)
+            return@withContext json.optString("lyrics", null)
+        }
+    } catch (_: Exception) {}
+    return@withContext null
+}
+
+suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.IO) {
+    // Itt integrálható egy külső zeneazonosító API (pl. AudD), vagy visszaadható egy teszt dal demonstrációhoz
+    delay(2000)
+    return@withContext LiveSong(
+        id = "rec_1",
+        title = "Ismert Felismert Dal",
+        artist = "Előadó",
+        coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150",
+        streamUrl = "yt:dQw4w9WgXcQ",
+        source = "YouTube"
+    )
+}
 
 class MainActivity : ComponentActivity() {
     private val WEB_CLIENT_ID = "592646172227-d2kic3r4aj2pb8p2tijbasnc1ss1uo2s.apps.googleusercontent.com"
@@ -115,7 +163,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
     val context = LocalContext.current
-    val currentVersionCode = 1 // TELEPÍTETT APK VERZIÓSZÁMA
+    val currentVersionCode = 1 
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
 
     LaunchedEffect(Unit) {
@@ -145,12 +193,10 @@ fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
     }
 }
 
-// ========== AUTOMATIKUS FRISSÍTÉS LOGIKA ==========
 suspend fun checkForUpdates(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
     try {
         val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).build()
         val jsonUrl = "https://raw.githubusercontent.com/felhasznalo/projekt/main/version.json"
-
         val request = Request.Builder().url(jsonUrl).build()
         val response = client.newCall(request).execute()
         val json = JSONObject(response.body?.string() ?: "")
@@ -181,9 +227,7 @@ fun AutoUpdateDialog(context: Context, updateInfo: UpdateInfo, onDismiss: () -> 
                     context.startActivity(intent)
                     onDismiss()
                 }
-            ) {
-                Text("Frissítés letöltése")
-            }
+            ) { Text("Frissítés letöltése") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Később") }
@@ -191,7 +235,6 @@ fun AutoUpdateDialog(context: Context, updateInfo: UpdateInfo, onDismiss: () -> 
     )
 }
 
-// ========== BEJELENTKEZÉS KÉPERNYŐK ==========
 @Composable
 fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAuth, onLoggedIn: () -> Unit, onPhoneClick: () -> Unit) {
     val context = LocalContext.current
@@ -202,7 +245,7 @@ fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAut
             val account = GoogleSignIn.getSignedInAccountFromIntent(result.data).getResult(ApiException::class.java)
             auth.signInWithCredential(GoogleAuthProvider.getCredential(account?.idToken, null))
                 .addOnCompleteListener { if (it.isSuccessful) onLoggedIn() else isLoading = false }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             isLoading = false
             Toast.makeText(context, "Hiba a bejelentkezés során!", Toast.LENGTH_SHORT).show()
         }
@@ -267,7 +310,6 @@ fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: ()
     }
 }
 
-// ========== FŐALKALMAZÁS & LEJÁTSZÓ LOGIKA ==========
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(auth: FirebaseAuth) {
@@ -344,12 +386,52 @@ fun HomeScreen(auth: FirebaseAuth) {
     }
 }
 
-// ========== TÖBBCSATORNÁS KERESŐMOTOR (FALLBACK) ==========
+// ========== TOVÁBBI UI KOMPONENSEK (COLLECTION & PROFILE) ==========
+@Composable
+fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
+    var savedSongs by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        savedSongs = repo.getFavorites()
+        isLoading = false
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Spacer(Modifier.height(24.dp))
+        Text("Kedvencek", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+        Spacer(Modifier.height(16.dp))
+
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
+        } else if (savedSongs.isEmpty()) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Még nincsenek mentett zenéid.", color = Color.Gray) }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(savedSongs) { song -> SongRow(song, { onPlay(song) }, null) }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProfileScreen(auth: FirebaseAuth) {
+    val user = auth.currentUser
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text("Profil", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Spacer(Modifier.height(16.dp))
+        Text(user?.email ?: user?.phoneNumber ?: "Ismeretlen felhasználó", color = Color.Gray, fontSize = 16.sp)
+        Spacer(Modifier.height(32.dp))
+        Button(onClick = { auth.signOut() }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) {
+            Text("Kijelentkezés", color = Color.White)
+        }
+    }
+}
+
 suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
     val client = OkHttpClient()
     val encodedQuery = URLEncoder.encode(query, "UTF-8")
 
-    // 1. PRÓBA: YouTube (Piped API) - Teljes dalok streammel
     try {
         val ytSongs = mutableListOf<LiveSong>()
         val url = "https://pipedapi.kavin.rocks/search?q=$encodedQuery&filter=all"
@@ -363,26 +445,14 @@ suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispa
                 val item = results.getJSONObject(i)
                 if (item.optString("type") == "stream") {
                     val videoId = item.optString("url").removePrefix("/watch?v=")
-                    ytSongs.add(
-                        LiveSong(
-                            id = videoId,
-                            title = item.optString("title", "Ismeretlen dal"),
-                            artist = item.optString("uploaderName", "YouTube"),
-                            coverUrl = item.optString("thumbnail", ""),
-                            streamUrl = "yt:$videoId",
-                            source = "YouTube"
-                        )
-                    )
+                    ytSongs.add(LiveSong(id = videoId, title = item.optString("title", "Ismeretlen"), artist = item.optString("uploaderName", "YouTube"), coverUrl = item.optString("thumbnail", ""), streamUrl = "yt:$videoId", source = "YouTube"))
                 }
                 if (ytSongs.size >= 20) break
             }
         }
         if (ytSongs.isNotEmpty()) return@withContext ytSongs
-    } catch (e: Exception) { 
-        e.printStackTrace() 
-    }
+    } catch (_: Exception) {}
 
-    // 2. PRÓBA: Deezer API
     try {
         val deezerSongs = mutableListOf<LiveSong>()
         val url = "https://api.deezer.com/search?q=$encodedQuery&limit=20"
@@ -394,51 +464,11 @@ suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispa
         if (data != null && data.length() > 0) {
             for (i in 0 until data.length()) {
                 val item = data.getJSONObject(i)
-                deezerSongs.add(
-                    LiveSong(
-                        id = item.optString("id"),
-                        title = item.optString("title", "Ismeretlen dal"),
-                        artist = item.getJSONObject("artist").optString("name", "Ismeretlen előadó"),
-                        coverUrl = item.getJSONObject("album").optString("cover_xl", ""),
-                        streamUrl = item.optString("preview", ""),
-                        source = "Deezer"
-                    )
-                )
+                deezerSongs.add(LiveSong(id = item.optString("id"), title = item.optString("title"), artist = item.getJSONObject("artist").optString("name"), coverUrl = item.getJSONObject("album").optString("cover_xl", ""), streamUrl = item.optString("preview", ""), source = "Deezer"))
             }
         }
         if (deezerSongs.isNotEmpty()) return@withContext deezerSongs
-    } catch (e: Exception) { 
-        e.printStackTrace()
-    }
-
-    // 3. PRÓBA: Apple iTunes API (Utolsó esély)
-    try {
-        val itunesSongs = mutableListOf<LiveSong>()
-        val url = "https://itunes.apple.com/search?term=$encodedQuery&media=music&limit=20"
-        val request = Request.Builder().url(url).build()
-        val response = client.newCall(request).execute()
-        val json = JSONObject(response.body?.string() ?: "")
-        val results = json.optJSONArray("results")
-        
-        if (results != null && results.length() > 0) {
-            for (i in 0 until results.length()) {
-                val item = results.getJSONObject(i)
-                itunesSongs.add(
-                    LiveSong(
-                        id = item.optString("trackId", ""),
-                        title = item.optString("trackName", "Ismeretlen dal"),
-                        artist = item.optString("artistName", "Ismeretlen előadó"),
-                        coverUrl = item.optString("artworkUrl100", "").replace("100x100", "500x500"),
-                        streamUrl = item.optString("previewUrl", ""),
-                        source = "Apple Music"
-                    )
-                )
-            }
-        }
-        if (itunesSongs.isNotEmpty()) return@withContext itunesSongs
-    } catch (e: Exception) { 
-        e.printStackTrace()
-    }
+    } catch (_: Exception) {}
 
     return@withContext emptyList()
 }
@@ -450,20 +480,14 @@ suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispat
         val request = Request.Builder().url(url).build()
         val response = client.newCall(request).execute()
         val json = JSONObject(response.body?.string() ?: "")
-        
         if (json.has("audioStreams")) {
             val audioStreams = json.getJSONArray("audioStreams")
-            if (audioStreams.length() > 0) {
-                return@withContext audioStreams.getJSONObject(0).getString("url")
-            }
+            if (audioStreams.length() > 0) return@withContext audioStreams.getJSONObject(0).getString("url")
         }
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
+    } catch (_: Exception) {}
     return@withContext null
 }
 
-// ========== KERESŐ KÉPERNYŐ ==========
 @Composable
 fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -501,7 +525,6 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     }
 }
 
-// ========== ZENE LISTASOR ==========
 @Composable
 fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     Row(
@@ -515,7 +538,7 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
             Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.DarkGray.copy(alpha=0.5f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text(when(song.source) { "YouTube" -> "📺"; "Deezer" -> "🎧"; "Apple Music" -> "🍏"; else -> "💿" }, fontSize = 10.sp)
+                Text(when(song.source) { "YouTube" -> "📺"; "Deezer" -> "🎧"; else -> "💿" }, fontSize = 10.sp)
                 Spacer(Modifier.width(4.dp))
                 Text(song.source, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Medium)
             }
@@ -524,7 +547,6 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     }
 }
 
-// ========== MINI LEJÁTSZÓ ==========
 @Composable
 fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onClick: () -> Unit) {
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
@@ -546,7 +568,6 @@ fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onCli
     }
 }
 
-// ========== TELJES KÉPERNYŐS LEJÁTSZÓ ==========
 @Composable
 fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDismiss: () -> Unit) {
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
@@ -619,7 +640,6 @@ fun formatTime(ms: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
-// ========== ZENEFELISMERŐ KÉPERNYŐ ==========
 @Composable
 fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
     val context = LocalContext.current
@@ -735,7 +755,7 @@ private fun startRecognitionProcess(
             prepare()
             start()
         }
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         setListening(false)
         setStatus("Hiba a mikrofon indításakor!")
         return
