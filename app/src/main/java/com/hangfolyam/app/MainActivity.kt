@@ -1,5 +1,6 @@
 package com.hangfolyam.app
 
+import androidx.activity.compose.setContent
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
