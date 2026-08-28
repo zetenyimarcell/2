@@ -39,8 +39,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.lifecycle.viewmodel.compose.viewModel // 2. LÉPÉS: ViewModel import
+import androidx.media3.common.Player // Módosított Media3 import
 import coil.compose.AsyncImage
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -61,7 +61,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.net.URLEncoder
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 // ========== SPOTIFY RAPIDAPI CONFIG ==========
@@ -115,7 +114,6 @@ suspend fun fetchFullYoutubeAudioUrl(artist: String, title: String): String = wi
                 val items = JSONObject(searchBody).optJSONArray("items")
 
                 if (items != null && items.length() > 0) {
-                    // Megnézzük az első 3 találatot, ha az első nem adna vissza audio streamet
                     val limit = minOf(items.length(), 3)
                     for (i in 0 until limit) {
                         val itemObj = items.getJSONObject(i)
@@ -283,20 +281,26 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         auth = FirebaseAuth.getInstance()
         setContent {
+            // 2. LÉPÉS: PlayerViewModel inicializálása és elindítása
+            val context = LocalContext.current
+            val playerViewModel: PlayerViewModel = viewModel()
+            playerViewModel.initPlayer(context)
+
             MaterialTheme(colorScheme = darkColorScheme(
                 background = Color(0xFF05050B),
                 surface = Color(0xFF13132B),
                 primary = Color(0xFF1DB954),
                 secondary = Color(0xFF8A2BE2)
             )) {
-                AppRoot(activity = this, clientId = WEB_CLIENT_ID, auth = auth)
+                // Átadjuk a ViewModel-t az AppRoot-nak
+                AppRoot(activity = this, clientId = WEB_CLIENT_ID, auth = auth, playerViewModel = playerViewModel)
             }
         }
     }
 }
 
 @Composable
-fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
+fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth, playerViewModel: PlayerViewModel) {
     val context = LocalContext.current
     val currentVersionCode = 1 
     var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -323,7 +327,7 @@ fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
         when (screen) {
             "LOGIN" -> LoginScreen(activity, clientId, auth, { currentScreen = "HOME" }, { currentScreen = "PHONE_LOGIN" })
             "PHONE_LOGIN" -> PhoneLoginScreen(activity, auth, { currentScreen = "LOGIN" }, { currentScreen = "HOME" })
-            "HOME" -> HomeScreen(auth = auth)
+            "HOME" -> HomeScreen(auth = auth, playerViewModel = playerViewModel) // Továbbadjuk a HomeScreen-nek
         }
     }
 }
@@ -331,7 +335,7 @@ fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
 suspend fun checkForUpdates(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
     try {
         val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).build()
-        val jsonUrl = "https://raw.githubusercontent.com/felhasznalo/projekt/main/version.json"
+        val jsonUrl = "https://raw.githubusercontent.com/felhasznalo/projekt/main/version.json" // Cseréld ki a valós linkre, ha kész
         val request = Request.Builder().url(jsonUrl).build()
         val response = client.newCall(request).execute()
         val json = JSONObject(response.body?.string() ?: "")
@@ -447,10 +451,9 @@ fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: ()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(auth: FirebaseAuth) {
+fun HomeScreen(auth: FirebaseAuth, playerViewModel: PlayerViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
     val repo = remember { CollectionRepository() }
 
     var currentTab by remember { mutableStateOf("SEARCH") }
@@ -461,29 +464,24 @@ fun HomeScreen(auth: FirebaseAuth) {
     var isPlayerExpanded by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
-
     fun playSong(song: LiveSong) {
         currentlyPlaying = song
         isBuffering = true
         lyricsText = "Dalszöveg betöltése..."
         
-        exoPlayer.stop()
-        exoPlayer.clearMediaItems()
-
+        // 3. LÉPÉS: Lejátszás a ViewModel-en keresztül
         scope.launch {
-            // 1. Spotify Dalszöveg lekérése
+            // 1. Dalszöveg betöltése
             launch(Dispatchers.IO) {
                 lyricsText = fetchSpotifyLyrics(song.id) ?: "Dalszöveg nem érhető el."
             }
 
-            // 2. A TELJES szám audio streamjének lekérése YouTube-ról (továbbfejlesztett metódussal)
+            // 2. Audio stream URL lekérése
             val fullAudioStreamUrl = fetchFullYoutubeAudioUrl(song.artist, song.title)
 
             if (fullAudioStreamUrl.isNotBlank()) {
-                exoPlayer.setMediaItem(MediaItem.fromUri(fullAudioStreamUrl))
-                exoPlayer.prepare()
-                exoPlayer.play()
+                // A háttérszolgáltatás felé küldjük a parancsot
+                playerViewModel.playAudio(fullAudioStreamUrl)
             } else {
                 Toast.makeText(context, "Hiba a lejátszási hivatkozás betöltésekor.", Toast.LENGTH_SHORT).show()
             }
@@ -496,7 +494,7 @@ fun HomeScreen(auth: FirebaseAuth) {
             Column {
                 AnimatedVisibility(visible = currentlyPlaying != null && !isPlayerExpanded, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
                     currentlyPlaying?.let { song ->
-                        MiniPlayer(song, exoPlayer, isBuffering) { isPlayerExpanded = true }
+                        MiniPlayer(song, playerViewModel.player, isBuffering) { isPlayerExpanded = true }
                     }
                 }
                 NavigationBar(containerColor = Color(0xFF0F0F1A), contentColor = Color.White) {
@@ -522,7 +520,7 @@ fun HomeScreen(auth: FirebaseAuth) {
                 containerColor = Color(0xFF0D1711),
                 modifier = Modifier.fillMaxSize()
             ) {
-                FullPlayerScreen(song = currentlyPlaying!!, exoPlayer = exoPlayer, lyrics = lyricsText, onDismiss = { scope.launch { sheetState.hide(); isPlayerExpanded = false } })
+                FullPlayerScreen(song = currentlyPlaying!!, player = playerViewModel.player, lyrics = lyricsText, onDismiss = { scope.launch { sheetState.hide(); isPlayerExpanded = false } })
             }
         }
     }
@@ -629,9 +627,16 @@ fun ProfileScreen(auth: FirebaseAuth) {
 }
 
 @Composable
-fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onClick: () -> Unit) {
-    var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
-    LaunchedEffect(song) { while (true) { isPlaying = exoPlayer.isPlaying; delay(300) } }
+fun MiniPlayer(song: LiveSong, player: Player?, isBuffering: Boolean, onClick: () -> Unit) {
+    var isPlaying by remember { mutableStateOf(player?.isPlaying == true) }
+    
+    // Figyeljük a háttérszolgáltatás lejátszójának állapotát
+    LaunchedEffect(player) { 
+        while (true) { 
+            isPlaying = player?.isPlaying == true
+            delay(500) 
+        } 
+    }
 
     Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).shadow(15.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1E2D24)).clickable { onClick() }) {
         if (isBuffering) LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(2.dp).align(Alignment.BottomCenter), color = MaterialTheme.colorScheme.primary)
@@ -642,114 +647,131 @@ fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onCli
                 Text(song.title, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 15.sp, maxLines = 1)
                 Text(song.artist, fontSize = 12.sp, color = Color.Gray, maxLines = 1)
             }
-            IconButton(onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() }) {
+            IconButton(onClick = { 
+                if (player?.isPlaying == true) player.pause() else player?.play() 
+            }) {
                 Text(if (isPlaying) "⏸" else "▶", fontSize = 20.sp, color = Color.White)
             }
         }
     }
 }
 
+// Befejezett, javított FullPlayerScreen
 @Composable
-fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDismiss: () -> Unit) {
-    var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
+fun FullPlayerScreen(song: LiveSong, player: Player?, lyrics: String, onDismiss: () -> Unit) {
+    var isPlaying by remember { mutableStateOf(player?.isPlaying == true) }
     var position by remember { mutableStateOf(0f) }
     var duration by remember { mutableStateOf(1f) }
     var seeking by remember { mutableStateOf(false) }
 
-    LaunchedEffect(song) {
+    LaunchedEffect(player) {
         while (true) {
-            if (!seeking) {
-                duration = exoPlayer.duration.coerceAtLeast(1L).toFloat()
-                position = exoPlayer.currentPosition.toFloat()
+            if (!seeking && player != null) {
+                isPlaying = player.isPlaying
+                val currentDuration = player.duration
+                duration = if (currentDuration > 0) currentDuration.toFloat() else 1f
+                position = player.currentPosition.toFloat().coerceAtMost(duration)
             }
-            isPlaying = exoPlayer.isPlaying
             delay(500)
         }
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF1A3526), Color(0xFF05050B))))
-            .padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onDismiss) { Text("▼", color = Color.White, fontSize = 24.sp) }
-            Text("TELJES DAL LEJÁTSZÁS", color = Color.Gray, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
-            IconButton(onClick = { }) { Text("⋮", color = Color.White, fontSize = 24.sp) }
-        }
-        Spacer(Modifier.height(16.dp))
+        // Húzó sáv (Vizuális elem)
+        Box(modifier = Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.Gray))
+        Spacer(Modifier.height(24.dp))
+
+        // Albumborító
         AsyncImage(
-            model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300" },
+            model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400" },
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(220.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .shadow(10.dp)
+            modifier = Modifier.size(280.dp).clip(RoundedCornerShape(16.dp)).shadow(15.dp)
         )
-        Spacer(Modifier.height(20.dp))
-        Text(song.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-        Text(song.artist, color = Color.Gray, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(24.dp))
 
+        // Cím és előadó
+        Text(song.title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(8.dp))
+        Text(song.artist, fontSize = 18.sp, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(24.dp))
+
+        // Keresősáv (Slider)
         Slider(
             value = position,
-            onValueChange = { seeking = true; position = it },
+            onValueChange = { 
+                seeking = true
+                position = it 
+            },
             onValueChangeFinished = {
-                exoPlayer.seekTo(position.toLong())
                 seeking = false
+                player?.seekTo(position.toLong())
             },
             valueRange = 0f..duration,
-            colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary)
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary
+            )
         )
+
+        // Időbélyegzők
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatMillis(position.toLong()), color = Color.Gray, fontSize = 12.sp)
-            Text(formatMillis(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
+            Text(formatTime(position.toLong()), color = Color.LightGray, fontSize = 12.sp)
+            Text(formatTime(duration.toLong()), color = Color.LightGray, fontSize = 12.sp)
         }
+
         Spacer(Modifier.height(16.dp))
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                shape = CircleShape,
-                modifier = Modifier.size(72.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+        // Irányítógombok
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            IconButton(onClick = { player?.seekBack() }) {
+                Text("⏪", fontSize = 32.sp)
+            }
+            Spacer(modifier = Modifier.width(24.dp))
+            Box(
+                modifier = Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).clickable {
+                    if (player?.isPlaying == true) player.pause() else player?.play()
+                },
+                contentAlignment = Alignment.Center
             ) {
                 Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
             }
-        }
-        Spacer(Modifier.height(20.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF131F18))
-                .padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Text("Dalszöveg", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Spacer(Modifier.height(8.dp))
-                Text(lyrics, color = Color.LightGray, fontSize = 14.sp, lineHeight = 20.sp)
+            Spacer(modifier = Modifier.width(24.dp))
+            IconButton(onClick = { player?.seekForward() }) {
+                Text("⏩", fontSize = 32.sp)
             }
+        }
+        
+        Spacer(Modifier.height(24.dp))
+
+        // Dalszöveg (Görgethető)
+        Box(
+            modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF16221B)).padding(16.dp)
+        ) {
+            val scrollState = rememberScrollState()
+            Text(
+                text = lyrics,
+                color = Color.White,
+                fontSize = 16.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 24.sp,
+                modifier = Modifier.fillMaxSize().verticalScroll(scrollState)
+            )
         }
     }
 }
 
-fun formatMillis(ms: Long): String {
+// Segédfüggvény az idő formázásához
+fun formatTime(ms: Long): String {
     val totalSeconds = ms / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    return String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
+    return String.format("%02d:%02d", minutes, seconds)
 }
