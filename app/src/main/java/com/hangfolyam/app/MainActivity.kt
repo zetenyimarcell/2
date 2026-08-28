@@ -72,7 +72,7 @@ import java.util.concurrent.TimeUnit
 
 // ========== CONSTANTS & RAPIDAPI CONFIG ==========
 private const val RAPIDAPI_KEY = "2d254d6e90msh93b4b9705fc3e35p1af4c0jsna208abe5a1fc"
-private const val RAPIDAPI_HOST = "youtube-media-downloader.p.rapidapi.com" // <-- ÚJ HOST BEÁLLÍTVA
+private const val RAPIDAPI_HOST = "youtube-media-downloader.p.rapidapi.com"
 
 // ========== ADATMODELLEK ==========
 data class LiveSong(
@@ -368,7 +368,7 @@ fun HomeScreen(auth: FirebaseAuth) {
         Box(modifier = Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(listOf(Color(0xFF121225), Color(0xFF05050B))))) {
             when (currentTab) {
                 "SEARCH" -> SearchScreen({ playSong(it) }, { scope.launch { repo.add(it); Toast.makeText(context, "Mentve a kedvencekhez!", Toast.LENGTH_SHORT).show() } })
-                "RECOGNIZE" -> RecognizeScreen { playSong(it) } // <-- Dummy recognize screen (maradt a kódodban)
+                "RECOGNIZE" -> RecognizeScreen { playSong(it) }
                 "COLLECTION" -> CollectionScreen(repo) { playSong(it) }
                 "PROFILE" -> ProfileScreen(auth)
             }
@@ -389,18 +389,15 @@ fun HomeScreen(auth: FirebaseAuth) {
 
 @Composable
 fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
-    // Ezt majd kicseréljük igazi mikrofonos Shazam kódra a következő lépésben!
     Box(Modifier.fillMaxSize(), Alignment.Center) {
         Text("Itt lesz a hangfelismerő", color = Color.White)
     }
 }
 
-// ========== ÚJRAPROGRAMOZOTT RAPIDAPI INTEGRÁCIÓ ==========
+// ========== RAPIDAPI INTEGRÁCIÓ ÉS LÁNCKeresés ==========
 suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
     val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
     val encodedQuery = URLEncoder.encode(query, "UTF-8")
-    
-    // Az általad választott YouTube Search végpont
     val url = "https://$RAPIDAPI_HOST/v2/search/videos?keyword=$encodedQuery"
 
     val request = Request.Builder()
@@ -414,20 +411,19 @@ suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatch
         if (response.isSuccessful) {
             val body = response.body?.string() ?: return@withContext emptyList()
             val json = JSONObject(body)
-            
-            // A legtöbb YouTube API "items", "results" vagy "data" mezőbe rakja a videókat
             val resultsArray = json.optJSONArray("items") ?: json.optJSONArray("results") ?: json.optJSONArray("data") ?: return@withContext emptyList()
 
             val songsList = mutableListOf<LiveSong>()
             for (i in 0 until resultsArray.length()) {
                 val item = resultsArray.getJSONObject(i)
                 
-                // Borítókép kiválasztása (thumbnail)
                 var cover = item.optString("thumbnail", "")
                 if (cover.isEmpty() && item.has("thumbnails")) {
                     val thumbs = item.optJSONArray("thumbnails")
                     if (thumbs != null && thumbs.length() > 0) cover = thumbs.getJSONObject(0).optString("url", "")
                 }
+
+                val directStreamUrl = extractUrlFromJson(item) ?: ""
 
                 songsList.add(
                     LiveSong(
@@ -435,7 +431,7 @@ suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatch
                         title = item.optString("title", "Ismeretlen dal"),
                         artist = item.optString("channelTitle", item.optString("author", "Ismeretlen előadó")),
                         coverUrl = cover,
-                        streamUrl = "", // Ezt a fetchAudioStreamRapidAPI kéri le lejátszáskor
+                        streamUrl = directStreamUrl,
                         source = "YouTube"
                     )
                 )
@@ -446,12 +442,11 @@ suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatch
     return@withContext emptyList()
 }
 
-// ========== INTELIGENS LETÖLTÉS / LEJÁTSZÁS KEZELŐ ==========
 suspend fun fetchAudioStreamRapidAPI(trackIdOrUrl: String): String? = withContext(Dispatchers.IO) {
+    if (trackIdOrUrl.startsWith("http")) return@withContext trackIdOrUrl
+
     val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
     val encodedId = URLEncoder.encode(trackIdOrUrl, "UTF-8")
-    
-    // Több lehetséges végpontot is megpróbálunk, amit a YouTube Media Downloader használni szokott
     val endpoints = listOf(
         "https://$RAPIDAPI_HOST/v2/video/details?videoId=$encodedId",
         "https://$RAPIDAPI_HOST/dl?id=$encodedId",
@@ -470,8 +465,6 @@ suspend fun fetchAudioStreamRapidAPI(trackIdOrUrl: String): String? = withContex
             if (response.isSuccessful) {
                 val body = response.body?.string() ?: continue
                 val json = JSONObject(body)
-                
-                // Automatikusan átkutatjuk a JSON-t bármilyen lejátszható link után
                 val directUrl = extractUrlFromJson(json)
                 if (!directUrl.isNullOrEmpty()) {
                     return@withContext directUrl
@@ -482,18 +475,15 @@ suspend fun fetchAudioStreamRapidAPI(trackIdOrUrl: String): String? = withContex
     return@withContext null
 }
 
-// Segédfüggvény, ami tetszőleges JSON válaszból kikeresi a http(s) linket
 private fun extractUrlFromJson(json: JSONObject): String? {
-    // 1. Megnézzük a leggyakoribb közvetlen kulcsokat
-    listOf("link", "url", "download_url", "audio", "streaming_url").forEach { key ->
+    listOf("link", "url", "download_url", "audio", "streaming_url", "audio_url").forEach { key ->
         if (json.has(key)) {
             val value = json.optString(key, "")
             if (value.startsWith("http")) return value
         }
     }
     
-    // 2. Megnézzük a tömböket (pl. formátumok, audiók listája)
-    listOf("audios", "formats", "links", "medias", "muxed").forEach { arrayKey ->
+    listOf("audios", "formats", "links", "medias", "muxed", "adaptiveFormats").forEach { arrayKey ->
         val arr = json.optJSONArray(arrayKey)
         if (arr != null) {
             for (i in 0 until arr.length()) {
@@ -508,17 +498,16 @@ private fun extractUrlFromJson(json: JSONObject): String? {
         }
     }
     
-    // 3. Megnézzük a beágyazott objektumokat is
-    listOf("data", "result", "body", "video").forEach { objKey ->
+    listOf("data", "result", "body", "video", "details").forEach { objKey ->
         val obj = json.optJSONObject(objKey)
         if (obj != null) {
             val subUrl = extractUrlFromJson(obj)
             if (!subUrl.isNullOrEmpty()) return subUrl
         }
     }
-    
     return null
 }
+
 @Composable
 fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -661,55 +650,65 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             Text("MOST JÁTSZOTT", color = Color.Gray, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
             IconButton(onClick = { }) { Text("⋮", color = Color.White, fontSize = 24.sp) }
         }
-        Spacer(Modifier.height(32.dp))
-        
-        val infiniteTransition = rememberInfiniteTransition(label = "ScaleAnim")
-        val scale by infiniteTransition.animateFloat(initialValue = 0.98f, targetValue = 1.02f, animationSpec = infiniteRepeatable(animation = tween(2000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "Scale")
-        AsyncImage(model = song.coverUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(300.dp).scale(if(isPlaying) scale else 1f).shadow(30.dp, RoundedCornerShape(20.dp)).clip(RoundedCornerShape(20.dp)))
-        
-        Spacer(Modifier.height(40.dp))
-        
-        Text(song.title, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-        Text(song.artist, fontSize = 18.sp, color = Color.LightGray, maxLines = 1)
-        
+        Spacer(Modifier.height(16.dp))
+        AsyncImage(
+            model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300" },
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(260.dp).clip(RoundedCornerShape(24.dp)).shadow(16.dp)
+        )
         Spacer(Modifier.height(24.dp))
-        
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(song.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(song.artist, color = Color.Gray, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
         Slider(
-            value = position, valueRange = 0f..duration,
+            value = position,
             onValueChange = { seeking = true; position = it },
-            onValueChangeFinished = { exoPlayer.seekTo(position.toLong()); seeking = false },
-            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = Color.DarkGray)
+            onValueChangeFinished = { seeking = false; exoPlayer.seekTo(position.toLong()) },
+            valueRange = 0f..duration,
+            colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary)
         )
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(position.toLong()), color = Color.Gray, fontSize = 12.sp)
             Text(formatTime(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
         }
-        
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            Text("⏮", fontSize = 32.sp, color = Color.White)
-            Box(modifier = Modifier.size(70.dp).background(MaterialTheme.colorScheme.primary, CircleShape).clickable { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() }, contentAlignment = Alignment.Center) {
-                Text(if (isPlaying) "⏸" else "▶", fontSize = 32.sp, color = Color.Black)
+        Spacer(Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { exoPlayer.seekBack() }) { Text("⏪", fontSize = 24.sp) }
+            Button(
+                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                shape = CircleShape,
+                modifier = Modifier.size(72.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
             }
-            Text("⏭", fontSize = 32.sp, color = Color.White)
+            IconButton(onClick = { exoPlayer.seekForward() }) { Text("⏩", fontSize = 24.sp) }
         }
-
         Spacer(Modifier.height(24.dp))
-
-        Card(modifier = Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35).copy(alpha=0.8f))) {
-            Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-                Text("Dalszöveg", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Spacer(Modifier.height(12.dp))
-                Text(lyrics, color = Color.LightGray, fontSize = 16.sp, lineHeight = 24.sp)
-            }
+        Text("Dalszöveg", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Start))
+        Spacer(Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF161625))
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Text(lyrics, color = Color.LightGray, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         }
     }
 }
 
-// A csúszkához tartozó formázó maradt
-@Composable
-fun formatTime(ms: Long): String {
+private fun formatTime(ms: Long): String {
     val totalSeconds = ms / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    return String.format("%02d:%02d", minutes, seconds)
+    return String.format("%d:%02d", minutes, seconds)
 }
