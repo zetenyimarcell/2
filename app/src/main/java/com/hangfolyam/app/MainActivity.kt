@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -71,8 +70,9 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-// Globális adatmodell a zenékhez
+// Globális adatmodellek
 data class LiveSong(val id: String, val title: String, val artist: String, val coverUrl: String, val streamUrl: String)
+data class RecognitionResult(val title: String, val artist: String, val spotifyUrl: String?)
 
 class MainActivity : ComponentActivity() {
     private val WEB_CLIENT_ID = "592646172227-d2kic3r4aj2pb8p2tijbasnc1ss1uo2s.apps.googleusercontent.com"
@@ -281,14 +281,47 @@ fun HomeScreen() {
 
     var currentTab by remember { mutableStateOf("SEARCH") }
     var currentlyPlaying by remember { mutableStateOf<LiveSong?>(null) }
+    var isBuffering by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
+
+    fun playSong(song: LiveSong) {
+        currentlyPlaying = song
+        isBuffering = true
+        scope.launch {
+            val playUrl = if (song.streamUrl.startsWith("yt:")) {
+                val videoId = song.streamUrl.removePrefix("yt:")
+                getYouTubeAudioStream(videoId) ?: ""
+            } else {
+                song.streamUrl
+            }
+
+            if (playUrl.isNotEmpty()) {
+                exoPlayer.setMediaItem(MediaItem.fromUri(playUrl))
+                exoPlayer.prepare()
+                exoPlayer.play()
+            } else {
+                Toast.makeText(context, "Nem sikerült betölteni a zenét.", Toast.LENGTH_SHORT).show()
+            }
+            isBuffering = false
+        }
+    }
 
     Scaffold(
         bottomBar = {
             Column {
                 AnimatedVisibility(visible = currentlyPlaying != null) {
-                    currentlyPlaying?.let { PlayerBar(it, exoPlayer) }
+                    currentlyPlaying?.let { song ->
+                        Box {
+                            PlayerBar(song, exoPlayer)
+                            if (isBuffering) {
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth().height(2.dp).align(Alignment.TopCenter),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
                 }
                 NavigationBar(containerColor = Color(0xFF13132B)) {
                     NavigationBarItem(
@@ -316,12 +349,7 @@ fun HomeScreen() {
         Box(modifier = Modifier.fillMaxSize().padding(padding).background(Brush.verticalGradient(listOf(Color(0xFF121225), Color(0xFF070714))))) {
             when (currentTab) {
                 "SEARCH" -> SearchScreen(
-                    onPlay = { song ->
-                        currentlyPlaying = song
-                        exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
-                        exoPlayer.prepare()
-                        exoPlayer.play()
-                    },
+                    onPlay = { song -> playSong(song) },
                     onSave = { song ->
                         scope.launch {
                             collectionRepo.add(song)
@@ -330,28 +358,18 @@ fun HomeScreen() {
                     }
                 )
                 "RECOGNIZE" -> RecognizeScreen(
-                    onPlayRecognized = { song ->
-                        currentlyPlaying = song
-                        exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
-                        exoPlayer.prepare()
-                        exoPlayer.play()
-                    }
+                    onPlayRecognized = { song -> playSong(song) }
                 )
                 "COLLECTION" -> CollectionScreen(
                     repo = collectionRepo,
-                    onPlay = { song ->
-                        currentlyPlaying = song
-                        exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
-                        exoPlayer.prepare()
-                        exoPlayer.play()
-                    }
+                    onPlay = { song -> playSong(song) }
                 )
             }
         }
     }
 }
 
-// ========== FÜL 1: DUPLA KERESŐMOTOR ==========
+// ========== FÜL 1: DUPLA KERESŐMOTOR (YOUTUBE / PIPED) ==========
 @Composable
 fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -396,7 +414,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     }
 }
 
-// ========== FÜL 2: ZENEFELISMERŐ (mikrofon-engedélykérő ablakkal) ==========
+// ========== FÜL 2: ZENEFELISMERŐ ==========
 @Composable
 fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
     val context = LocalContext.current
@@ -498,7 +516,7 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
                     if (song.streamUrl.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(onClick = { onPlayRecognized(song) }) {
-                            Text("Lejátszás")
+                            Text("Lejátszás (Preview)")
                         }
                     }
                 }
@@ -509,7 +527,7 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
             AlertDialog(
                 onDismissRequest = { showRationale = false },
                 title = { Text("Mikrofon engedély szükséges") },
-                text = { Text("A Nova Zene a mikrofont csak arra használja, hogy 6 másodpercet rögzítsen a körülötted szóló zenéből, és azonosítsa azt. Semmit nem ment el vagy küld tovább máshova.") },
+                text = { Text("A Nova Zene a mikrofont csak arra használja, hogy 6 másodsegment rögzítsen a körülötted szóló zenéből, és azonosítsa azt. Semmit nem ment el vagy küld tovább máshova.") },
                 confirmButton = {
                     TextButton(onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }) {
                         Text("Engedélyezem")
@@ -674,7 +692,7 @@ class AudioRecorder(private val context: Context) {
     }
 }
 
-// ========== AUDD ZENEFELISMERŐ API ==========
+// ========== AUDD ZENEFELISMERŐ API (Javítva a levágott kód) ==========
 object RecognitionApi {
     private val client = OkHttpClient()
     private const val API_TOKEN = "3c3ef271303bbfad486351e6b66e49dd"
@@ -694,96 +712,108 @@ object RecognitionApi {
                 val json = JSONObject(body)
                 if (json.optString("status") != "success") return@withContext null
                 val result = json.optJSONObject("result") ?: return@withContext null
+                
+                // Hiányzó rész pótolva!
                 return@withContext RecognitionResult(
                     title = result.optString("title", "Ismeretlen"),
-                    artist = result.optString("artist", "Ismeretlen"),
-                    spotifyUrl = result.optJSONObject("spotify")?.optJSONObject("external_urls")?.optString("spotify")
+                    artist = result.optString("artist", "Ismeretlen Előadó"),
+                    spotifyUrl = result.optJSONObject("spotify")?.optString("preview_url", "")
                 )
             }
         } catch (e: Exception) {
-            null
+            e.printStackTrace()
+            return@withContext null
         }
     }
 }
 
-data class RecognitionResult(val title: String, val artist: String, val spotifyUrl: String?)
-
-// ========== CLOUD FIRESTORE TÁROLÓ ==========
+// ========== FIRESTORE ADATBÁZIS KEZELŐ (Gyűjtemény) ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
+    private val userId get() = auth.currentUser?.uid ?: "guest"
 
-    private fun ref() = auth.currentUser?.uid?.let {
-        db.collection("users").document(it).collection("saved_songs")
+    suspend fun add(song: LiveSong) {
+        try {
+            db.collection("users").document(userId).collection("songs").document(song.id).set(song).await()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     suspend fun getAll(): List<LiveSong> = withContext(Dispatchers.IO) {
-        val list = mutableListOf<LiveSong>()
         try {
-            val snapshot = ref()?.get()?.await()
-            if (snapshot != null) {
-                for (doc in snapshot.documents) {
-                    list.add(
+            val snapshot = db.collection("users").document(userId).collection("songs").get().await()
+            snapshot.documents.map { doc ->
+                LiveSong(
+                    id = doc.getString("id") ?: "",
+                    title = doc.getString("title") ?: "",
+                    artist = doc.getString("artist") ?: "",
+                    coverUrl = doc.getString("coverUrl") ?: "",
+                    streamUrl = doc.getString("streamUrl") ?: ""
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+}
+
+// ========== YOUTUBE / PIPED API KERESŐMOTOR ==========
+suspend fun searchMusicFromInternetFull(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    val results = mutableListOf<LiveSong>()
+    runCatching {
+        val encoded = URLEncoder.encode(query, "UTF-8")
+        val url = URL("https://pipedapi.kavin.rocks/search?q=$encoded&filter=music_songs")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.connectTimeout = 5000
+        conn.readTimeout = 5000
+        
+        if (conn.responseCode == 200) {
+            val text = conn.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(text)
+            val array = json.getJSONArray("items")
+            for (i in 0 until array.length()) {
+                val item = array.getJSONObject(i)
+                val videoUrl = item.optString("url", "")
+                val videoId = videoUrl.removePrefix("/watch?v=")
+                
+                if (videoId.isNotEmpty()) {
+                    results.add(
                         LiveSong(
-                            id = doc.id,
-                            title = doc.getString("title") ?: "",
-                            artist = doc.getString("artist") ?: "",
-                            coverUrl = doc.getString("coverUrl") ?: "",
-                            streamUrl = doc.getString("streamUrl") ?: ""
+                            id = videoId,
+                            title = item.optString("title", "Ismeretlen szám"),
+                            artist = item.optString("uploaderName", "Ismeretlen előadó"),
+                            coverUrl = item.optString("thumbnail", ""),
+                            streamUrl = "yt:$videoId"
                         )
                     )
                 }
             }
-        } catch (_: Exception) {}
-        return@withContext list
+        }
     }
-
-    suspend fun add(song: LiveSong) {
-        try {
-            ref()?.document(song.id)?.set(
-                mapOf(
-                    "title" to song.title,
-                    "artist" to song.artist,
-                    "coverUrl" to song.coverUrl,
-                    "streamUrl" to song.streamUrl
-                )
-            )?.await()
-        } catch (_: Exception) {}
-    }
+    return@withContext results
 }
 
-// ========== DUPLA KERESŐMOTOR (DEEZER + ITUNES) ==========
-suspend fun searchMusicFromInternetFull(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    val results = mutableListOf<LiveSong>()
-    try {
-        val encodedQuery = URLEncoder.encode(query, "UTF-8")
-        try {
-            val dzConn = URL("https://api.deezer.com/search?q=$encodedQuery&limit=15").openConnection() as HttpURLConnection
-            if (dzConn.responseCode == 200) {
-                val dzArray = JSONObject(dzConn.inputStream.bufferedReader().use { it.readText() }).getJSONArray("data")
-                for (i in 0 until dzArray.length()) {
-                    val item = dzArray.getJSONObject(i)
-                    val previewUrl = item.optString("preview", "")
-                    if (previewUrl.isNotEmpty()) {
-                        results.add(LiveSong("dz_" + item.optString("id"), item.optString("title"), item.getJSONObject("artist").optString("name"), item.getJSONObject("album").optString("cover_medium", ""), previewUrl))
-                    }
-                }
+// ========== YOUTUBE STREAM FELOLDÓ (Lejátszáshoz) ==========
+suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
+    runCatching {
+        val url = URL("https://pipedapi.kavin.rocks/streams/$videoId")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.connectTimeout = 5000
+        conn.readTimeout = 5000
+
+        if (conn.responseCode == 200) {
+            val text = conn.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(text)
+            val audioStreams = json.getJSONArray("audioStreams")
+            
+            if (audioStreams.length() > 0) {
+                return@runCatching audioStreams.getJSONObject(0).optString("url")
             }
-        } catch (e: Exception) { Log.e("Deezer", "Hiba: ${e.message}") }
-        try {
-            val itConn = URL("https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=15&country=HU").openConnection() as HttpURLConnection
-            if (itConn.responseCode == 200) {
-                val itArray = JSONObject(itConn.inputStream.bufferedReader().use { it.readText() }).getJSONArray("results")
-                for (i in 0 until itArray.length()) {
-                    val item = itArray.getJSONObject(i)
-                    val previewUrl = item.optString("previewUrl", "")
-                    val title = item.optString("trackName", "")
-                    if (previewUrl.isNotEmpty() && results.none { it.title.equals(title, ignoreCase = true) }) {
-                        results.add(LiveSong("it_" + item.optString("trackId"), title, item.optString("artistName"), item.optString("artworkUrl100", "").replace("100x100", "300x300"), previewUrl))
-                    }
-                }
-            }
-        } catch (e: Exception) { Log.e("iTunes", "Hiba: ${e.message}") }
-    } catch (e: Exception) { Log.e("ZeneKereso", "Fő hiba: ${e.message}") }
-    return@withContext results
+        }
+        null
+    }.getOrNull()
 }
