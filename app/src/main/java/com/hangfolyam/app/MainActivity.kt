@@ -858,6 +858,30 @@ class CollectionRepository {
             }
         } catch (e: Exception) {
             emptyList()
-        }
-    }
+    // --- HIÁNYZÓ HÁLÓZATI SEGÉDFÜGGVÉNYEK PÓTLÁSA ---
+
+suspend fun fetchLyrics(artist: String, title: String): String? {
+    // Itt valósítanád meg a dalszöveg API hívást (pl. lyrics.ovh)
+    // Most egy placeholder szöveget adunk vissza, hogy a kód leforduljon
+    return "A dalszöveg betöltése jelenleg fejlesztés alatt áll.\nKeresett dal: $artist - $title"
+}
+
+suspend fun getYouTubeAudioStream(videoId: String): String? {
+    // Itt történne a YouTube videó stream URL kinyerése (pl. NewPipeExtractor vagy yt-dlp segítségével)
+    return null
+}
+
+suspend fun searchMultiEngine(query: String): List<LiveSong> {
+    // Itt valósítod meg a külső API-k (YouTube, iTunes, Deezer) keresését
+    // Hogy a kód működjön, visszaadunk egy kamu listát:
+    return listOf(
+        LiveSong(
+            id = "test1",
+            title = "Keresés eredménye: $query",
+            artist = "Ismeretlen előadó",
+            coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150",
+            streamUrl = "",
+            source = "Teszt"
+        )
+    )
 }
