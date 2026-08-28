@@ -116,6 +116,7 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                 val trackId = rawId.substringAfterLast(":")
                 val title = data.optString("name", "Ismeretlen dal")
                 
+                // Előadó kiolvasása
                 var artistName = "Ismeretlen előadó"
                 val artistsObj = data.optJSONObject("artists")
                 if (artistsObj != null) {
@@ -125,6 +126,7 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                     }
                 }
 
+                // Borítókép kiolvasása
                 var coverUrl = ""
                 val albumObj = data.optJSONObject("albumOfTrack") ?: data.optJSONObject("album")
                 val coverArt = albumObj?.optJSONObject("coverArt")?.optJSONArray("sources")
@@ -132,7 +134,15 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                     coverUrl = coverArt.getJSONObject(0).optString("url", "")
                 }
 
-                val previewUrl = data.optString("preview_url", "")
+                // Audio Preview URL kiolvasása (több lehetséges helyről a JSON-ban)
+                var previewUrl = ""
+                val audioPreview = data.optJSONObject("audioPreview")
+                if (audioPreview != null) {
+                    previewUrl = audioPreview.optString("url", "")
+                }
+                if (previewUrl.isEmpty()) {
+                    previewUrl = data.optString("preview_url", "")
+                }
 
                 songsList.add(
                     LiveSong(
@@ -151,12 +161,12 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
     return@withContext emptyList()
 }
 
+// Spotify Dalszöveg lekérése a RapidAPI-ról
 suspend fun fetchSpotifyLyrics(trackId: String): String? = withContext(Dispatchers.IO) {
-    val cleanId = trackId.substringAfterLast(":")
-    if (cleanId.isEmpty()) return@withContext "Dalszöveg nem érhető el."
+    if (trackId.isEmpty()) return@withContext "Dalszöveg nem érhető el."
     
     val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
-    val url = "https://$RAPIDAPI_HOST/track_lyrics/?id=$cleanId"
+    val url = "https://$RAPIDAPI_HOST/track_lyrics/?id=$trackId"
 
     val request = Request.Builder()
         .url(url)
@@ -185,6 +195,7 @@ suspend fun fetchSpotifyLyrics(trackId: String): String? = withContext(Dispatche
     return@withContext "Dalszöveg nem található ehhez a számhoz."
 }
 
+// ========== ADATBÁZIS ÉS REPOSITORY ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -400,20 +411,21 @@ fun HomeScreen(auth: FirebaseAuth) {
         isBuffering = true
         lyricsText = "Dalszöveg betöltése..."
         
+        // Leállítjuk és töröljük a korábban betöltött zenét
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+
         scope.launch {
             launch(Dispatchers.IO) {
                 lyricsText = fetchSpotifyLyrics(song.id) ?: "Dalszöveg nem érhető el."
             }
 
-            // Fallback teszt MP3 link, mert a Spotify API nem ad zenei streamet
-            val playableUrl = if (song.streamUrl.isNotEmpty()) song.streamUrl else "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-
-            try {
-                exoPlayer.setMediaItem(MediaItem.fromUri(playableUrl))
+            if (song.streamUrl.isNotBlank()) {
+                exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
                 exoPlayer.prepare()
                 exoPlayer.play()
-            } catch (e: Exception) {
-                Toast.makeText(context, "Hiba a lejátszás során: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Ehhez a dalhoz a Spotify nem biztosít minta streamet.", Toast.LENGTH_SHORT).show()
             }
             isBuffering = false
         }
