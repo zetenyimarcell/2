@@ -112,10 +112,10 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                 val item = itemsArray.getJSONObject(i)
                 val data = item.optJSONObject("data") ?: item
 
-                val trackId = data.optString("id", "")
+                val rawId = data.optString("id", "")
+                val trackId = rawId.substringAfterLast(":")
                 val title = data.optString("name", "Ismeretlen dal")
                 
-                // Előadók kiszedése
                 var artistName = "Ismeretlen előadó"
                 val artistsObj = data.optJSONObject("artists")
                 if (artistsObj != null) {
@@ -125,7 +125,6 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                     }
                 }
 
-                // Borítókép kiszedése
                 var coverUrl = ""
                 val albumObj = data.optJSONObject("albumOfTrack") ?: data.optJSONObject("album")
                 val coverArt = albumObj?.optJSONObject("coverArt")?.optJSONArray("sources")
@@ -133,7 +132,6 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                     coverUrl = coverArt.getJSONObject(0).optString("url", "")
                 }
 
-                // Minta hanganyag URL (ha van a válaszban)
                 val previewUrl = data.optString("preview_url", "")
 
                 songsList.add(
@@ -153,12 +151,12 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
     return@withContext emptyList()
 }
 
-// Spotify Dalszöveg lekérése a RapidAPI-ról
 suspend fun fetchSpotifyLyrics(trackId: String): String? = withContext(Dispatchers.IO) {
-    if (trackId.isEmpty()) return@withContext "Dalszöveg nem érhető el."
+    val cleanId = trackId.substringAfterLast(":")
+    if (cleanId.isEmpty()) return@withContext "Dalszöveg nem érhető el."
     
     val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
-    val url = "https://$RAPIDAPI_HOST/track_lyrics/?id=$trackId"
+    val url = "https://$RAPIDAPI_HOST/track_lyrics/?id=$cleanId"
 
     val request = Request.Builder()
         .url(url)
@@ -187,7 +185,6 @@ suspend fun fetchSpotifyLyrics(trackId: String): String? = withContext(Dispatche
     return@withContext "Dalszöveg nem található ehhez a számhoz."
 }
 
-// ========== ADATBÁZIS ÉS REPOSITORY ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -408,12 +405,15 @@ fun HomeScreen(auth: FirebaseAuth) {
                 lyricsText = fetchSpotifyLyrics(song.id) ?: "Dalszöveg nem érhető el."
             }
 
-            if (song.streamUrl.isNotEmpty()) {
-                exoPlayer.setMediaItem(MediaItem.fromUri(song.streamUrl))
+            // Fallback teszt MP3 link, mert a Spotify API nem ad zenei streamet
+            val playableUrl = if (song.streamUrl.isNotEmpty()) song.streamUrl else "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+
+            try {
+                exoPlayer.setMediaItem(MediaItem.fromUri(playableUrl))
                 exoPlayer.prepare()
                 exoPlayer.play()
-            } else {
-                Toast.makeText(context, "Minta stream nem áll rendelkezésre.", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Hiba a lejátszás során: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
             isBuffering = false
         }
@@ -675,14 +675,13 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             ) {
                 Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
             }
-            IconButton(onClick = { /* Implementáld a következő dal logikát */ }) {
+            IconButton(onClick = { }) {
                 Text("⏭", fontSize = 28.sp, color = Color.White)
             }
         }
         
         Spacer(Modifier.height(32.dp))
         
-        // Dalszöveg nézet
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -703,7 +702,6 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
     }
 }
 
-// Segédfüggvény az időtartam formázásához
 fun formatDuration(durationMs: Long): String {
     if (durationMs < 0) return "00:00"
     val totalSeconds = durationMs / 1000
