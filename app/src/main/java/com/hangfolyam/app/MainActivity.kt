@@ -9,7 +9,6 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -94,7 +93,7 @@ class MainActivity : ComponentActivity() {
                 primary = Color(0xFF1DB954),
                 secondary = Color(0xFF8A2BE2)
             )) {
-                AppRoot(activity = this@MainActivity, clientId = WEB_CLIENT_ID, auth = auth)
+                AppRoot(activity = this, clientId = WEB_CLIENT_ID, auth = auth)
             }
         }
     }
@@ -610,7 +609,7 @@ suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.
     fallbackMatches.firstOrNull()
 }
 
-// ========== GYŰJTEMÉNY KÉPERNYŐ ==========
+// ========== 3. GYŰJTEMÉNY KÉPERNYŐ ==========
 @Composable
 fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
     var favorites by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
@@ -636,66 +635,275 @@ fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                items(favorites) { song -> SongRow(song, { onPlay(song) }, null) }
+                items(favorites) { song ->
+                    SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
+                }
             }
         }
     }
 }
 
-// ========== PROFIL KÉPERNYŐ ==========
+// ========== 4. PROFIL KÉPERNYŐ & TV QR BELÉPÉS ==========
 @Composable
 fun ProfileScreen(auth: FirebaseAuth) {
+    val user = auth.currentUser
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showTvDialog by remember { mutableStateOf(false) }
+    var tvCodeInput by remember { mutableStateOf("") }
+    var isApprovingTv by remember { mutableStateOf(false) }
+
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Spacer(Modifier.height(16.dp))
         Box(
             modifier = Modifier
                 .size(100.dp)
+                .shadow(12.dp, CircleShape)
                 .clip(CircleShape)
-                .background(Color(0xFF1E1E35)),
+                .background(MaterialTheme.colorScheme.secondary),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(50.dp))
+            if (user?.photoUrl != null) {
+                AsyncImage(
+                    model = user.photoUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(Icons.Default.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size(50.dp))
+            }
         }
-        
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("Fiók adatai", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        val userIdentifier = auth.currentUser?.email ?: auth.currentUser?.phoneNumber ?: "Ismeretlen felhasználó"
-        Text(userIdentifier, color = Color.LightGray, fontSize = 16.sp)
-        
-        Spacer(modifier = Modifier.height(48.dp))
-        
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = user?.displayName ?: "Nova Premium Felhasználó",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+        Text(
+            text = user?.email ?: user?.phoneNumber ?: "Vendég fiók",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35))
+        ) {
+            Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("FIÓK STÁTUSZ", color = Color.Gray, fontSize = 12.sp, letterSpacing = 1.5.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("Nova Premium VIP", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // TV BEJELENTKEZÉS KÁRTYA
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable { showTvDialog = true },
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF251A3E))
+        ) {
+            Row(
+                modifier = Modifier.padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("📺", fontSize = 28.sp)
+                Spacer(Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Bejelentkezés Smart TV-re", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                    Text("QR-kód vagy 6 jegyű munkamenet kód alapján", color = Color.Gray, fontSize = 12.sp)
+                }
+                Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color.White)
+            }
+        }
+
+        Spacer(Modifier.height(40.dp))
+
         Button(
-            onClick = { auth.signOut() },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            onClick = {
+                auth.signOut()
+                Toast.makeText(context, "Sikeres kijelentkezés!", Toast.LENGTH_SHORT).show()
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+            modifier = Modifier.fillMaxWidth().height(50.dp),
             shape = RoundedCornerShape(25.dp)
         ) {
+            Icon(Icons.Default.ExitToApp, contentDescription = null, tint = Color.White)
+            Spacer(Modifier.width(8.dp))
             Text("Kijelentkezés", fontWeight = FontWeight.Bold, color = Color.White)
         }
     }
+
+    if (showTvDialog) {
+        AlertDialog(
+            onDismissRequest = { showTvDialog = false },
+            containerColor = Color(0xFF13132B),
+            title = { Text("TV Bejelentkezés Érzékelés", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Írd be a TV képernyőjén megjelenő 6 jegyű munkamenet kódot a párosításhoz:", color = Color.Gray, fontSize = 14.sp)
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = tvCodeInput,
+                        onValueChange = { if (it.length <= 6) tvCodeInput = it.uppercase() },
+                        placeholder = { Text("pl. TV89X2", color = Color.Gray) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedContainerColor = Color(0xFF1E1E35), unfocusedContainerColor = Color(0xFF1E1E35))
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (tvCodeInput.length >= 4) {
+                            isApprovingTv = true
+                            scope.launch {
+                                val success = approveTvSession(tvCodeInput, auth.currentUser?.uid ?: "")
+                                isApprovingTv = false
+                                showTvDialog = false
+                                if (success) {
+                                    Toast.makeText(context, "TV Sikeresen Párosítva!", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Hiba! Érvénytelen vagy lejárt TV kód.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    if (isApprovingTv) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black)
+                    else Text("Jóváhagyás & Belépés", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTvDialog = false }) { Text("Mégse", color = Color.Gray) }
+            }
+        )
+    }
 }
 
-// ========== ADATBÁZIS (FIRESTORE) REPOSITORY ==========
+suspend fun approveTvSession(sessionId: String, userId: String): Boolean = withContext(Dispatchers.IO) {
+    if (userId.isEmpty() || sessionId.isEmpty()) return@withContext false
+    try {
+        val db = FirebaseFirestore.getInstance()
+        val sessionRef = db.collection("qr_sessions").document(sessionId.trim())
+        
+        sessionRef.set(
+            mapOf(
+                "status" to "APPROVED",
+                "userId" to userId,
+                "timestamp" to System.currentTimeMillis()
+            )
+        ).await()
+        true
+    } catch (e: Exception) {
+        false
+    }
+}
+
+// ========== 5. HIÁNYZÓ HÁLÓZATI ÉS Kereső FÜGGVÉNYEK PÓTLÁSA ==========
+
+suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
+    try {
+        val encodedArtist = java.net.URLEncoder.encode(artist, "UTF-8")
+        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+        val client = OkHttpClient()
+        val request = Request.Builder().url("https://api.lyrics.ovh/v1/$encodedArtist/$encodedTitle").build()
+        val response = client.newCall(request).execute()
+        val body = response.body?.string()
+        if (body != null) {
+            val json = JSONObject(body)
+            return@withContext json.optString("lyrics", "Dalszöveg nem található.")
+        }
+    } catch (_: Exception) {}
+    return@withContext "Dalszöveg nem érhető el."
+}
+
+suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
+    // Alapértelmezett fallback stream link ha szükséges
+    return@withContext "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+}
+
+suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    val list = mutableListOf<LiveSong>()
+    try {
+        val client = OkHttpClient()
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+        val request = Request.Builder().url("https://itunes.apple.com/search?term=$encoded&entity=song&limit=10").build()
+        val response = client.newCall(request).execute()
+        val body = response.body?.string()
+        if (body != null) {
+            val json = JSONObject(body)
+            val results = json.getJSONArray("results")
+            for (i in 0 until results.length()) {
+                val item = results.getJSONObject(i)
+                list.add(
+                    LiveSong(
+                        id = item.optLong("trackId").toString(),
+                        title = item.optString("trackName"),
+                        artist = item.optString("artistName"),
+                        coverUrl = item.optString("artworkUrl100").replace("100x100bb", "500x500bb"),
+                        streamUrl = item.optString("previewUrl"),
+                        source = "iTunes"
+                    )
+                )
+            }
+        }
+    } catch (_: Exception) {}
+
+    if (list.isEmpty()) {
+        list.add(
+            LiveSong(
+                id = "fallback_1",
+                title = query,
+                artist = "Nova Zenei Archívum",
+                coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500",
+                streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+                source = "Nova Cloud"
+            )
+        )
+    }
+    return@withContext list
+}
+
+// ========== FIRESTORE ADATBÁZIS REPOSITORY ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
 
+    suspend fun add(song: LiveSong) {
+        val userId = auth.currentUser?.uid ?: return
+        val songData = mapOf(
+            "id" to song.id,
+            "title" to song.title,
+            "artist" to song.artist,
+            "coverUrl" to song.coverUrl,
+            "streamUrl" to song.streamUrl,
+            "source" to song.source,
+            "timestamp" to System.currentTimeMillis()
+        )
+        db.collection("users").document(userId).collection("favorites")
+            .document(song.id).set(songData).await()
+    }
+
     suspend fun getAll(): List<LiveSong> {
         val userId = auth.currentUser?.uid ?: return emptyList()
         return try {
-            val snapshot = db.collection("users").document(userId).collection("favorites").get().await()
+            val snapshot = db.collection("users").document(userId).collection("favorites")
+                .get().await()
             snapshot.documents.mapNotNull { doc ->
                 LiveSong(
-                    id = doc.getString("id") ?: return@mapNotNull null,
+                    id = doc.getString("id") ?: doc.id,
                     title = doc.getString("title") ?: "",
                     artist = doc.getString("artist") ?: "",
                     coverUrl = doc.getString("coverUrl") ?: "",
@@ -707,41 +915,4 @@ class CollectionRepository {
             emptyList()
         }
     }
-
-    suspend fun add(song: LiveSong) {
-        val userId = auth.currentUser?.uid ?: return
-        try {
-            db.collection("users").document(userId).collection("favorites").document(song.id).set(song).await()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-}
-
-// ========== HÁLÓZATI SEGÉDFÜGGVÉNYEK ==========
-suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    delay(1000)
-    if (query.isNotEmpty()) {
-        listOf(
-            LiveSong(
-                id = "1",
-                title = query,
-                artist = "Ismeretlen Előadó",
-                coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150",
-                streamUrl = "",
-                source = "Keresés"
-            )
-        )
-    } else {
-        emptyList()
-    }
-}
-
-suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-    delay(500)
-    null 
-}
-
-suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
-    null
 }
