@@ -68,6 +68,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 import java.net.URLEncoder
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 // ========== CONSTANTS & RAPIDAPI CONFIG ==========
@@ -338,7 +339,6 @@ fun HomeScreen(auth: FirebaseAuth) {
                 lyricsText = fetchLyrics(song.artist, song.title) ?: "Dalszöveg nem található."
             }
 
-            // Piped API használata a közvetlen stream kinyeréséhez
             val playUrl = if (song.streamUrl.isNotEmpty() && song.streamUrl.startsWith("http")) 
                 song.streamUrl 
             else 
@@ -447,7 +447,6 @@ suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatch
     return@withContext emptyList()
 }
 
-// Stabil Piped API a nyers audio stream hivatkozások lekéréséhez
 suspend fun fetchAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
     if (videoId.startsWith("http")) return@withContext videoId
 
@@ -687,40 +686,51 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0)) }) {
-                Text("⏪", fontSize = 28.sp, color = Color.White)
+            IconButton(onClick = { exoPlayer.seekTo(0) }) {
+                Icon(Icons.Default.SkipPrevious, contentDescription = "Előző", tint = Color.White, modifier = Modifier.size(36.dp))
             }
-            IconButton(
-                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                modifier = Modifier.size(64.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable {
+                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
+                Icon(
+                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Szünet" else "Lejátszás",
+                    tint = Color.Black,
+                    modifier = Modifier.size(36.dp)
+                )
             }
-            IconButton(onClick = { exoPlayer.seekTo((exoPlayer.currentPosition + 10000).coerceAtMost(exoPlayer.duration)) }) {
-                Text("⏩", fontSize = 28.sp, color = Color.White)
+            IconButton(onClick = { /* Következő dal logika */ }) {
+                Icon(Icons.Default.SkipNext, contentDescription = "Következő", tint = Color.White, modifier = Modifier.size(36.dp))
             }
         }
         Spacer(Modifier.height(24.dp))
-        Text("Dalszöveg", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.align(Alignment.Start))
-        Spacer(Modifier.height(8.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF161625))
+                .background(Color(0xFF191928))
                 .padding(16.dp)
         ) {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(lyrics, color = Color.LightGray, fontSize = 14.sp, lineHeight = 20.sp)
+                Text("DALSZÖVEG", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+                Text(lyrics, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp)
             }
         }
     }
 }
 
-private fun formatTime(ms: Long): String {
-    val totalSec = ms / 1000
-    val min = totalSec / 60
-    val sec = totalSec % 60
-    return String.format("%d:%02d", min, sec)
+fun formatTime(ms: Long): String {
+    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format(Locale.US, "%d:%02d", minutes, seconds)
 }
