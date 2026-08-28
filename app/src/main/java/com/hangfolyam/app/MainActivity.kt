@@ -85,16 +85,27 @@ data class UpdateInfo(
     val releaseNotes: String
 )
 
-// ========== YOUTUBE / PIPED TELJES AUDIO MOTOR ==========
-// A YouTube hálózatáról kéri le a dal TELJES 3-4 perces hanganyagát (30mp korlát nélkül)
+// ========== YOUTUBE / PIPED TELJES AUDIO MOTOR (ROBUSZTUSABB VÁLTOZAT) ==========
 suspend fun fetchFullYoutubeAudioUrl(artist: String, title: String): String = withContext(Dispatchers.IO) {
-    val client = OkHttpClient.Builder().connectTimeout(6, TimeUnit.SECONDS).build()
-    val searchQuery = URLEncoder.encode("$artist $title audio", "UTF-8")
-    val pipedInstances = listOf("https://pipedapi.kavin.rocks", "https://api.piped.private.coffee")
+    val client = OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
+        .build()
+        
+    val cleanTitle = title.replace(Regex("\\(.*?\\)|\\[.*?\\]"), "").trim()
+    val searchQuery = URLEncoder.encode("$artist $cleanTitle audio", "UTF-8")
+    
+    // Több megbízhatóbb nyilvános Piped szerver listája tartalékként
+    val pipedInstances = listOf(
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.yt.artemislena.eu",
+        "https://pipedapi.adminforge.de",
+        "https://pipedapi.projectsegfau.lt",
+        "https://api.piped.private.coffee"
+    )
 
     for (instance in pipedInstances) {
         try {
-            // 1. Keresés YouTube-on
             val searchUrl = "$instance/search?q=$searchQuery&filter=music_songs"
             val searchReq = Request.Builder().url(searchUrl).build()
             val searchResp = client.newCall(searchReq).execute()
@@ -104,20 +115,35 @@ suspend fun fetchFullYoutubeAudioUrl(artist: String, title: String): String = wi
                 val items = JSONObject(searchBody).optJSONArray("items")
 
                 if (items != null && items.length() > 0) {
-                    val videoId = items.getJSONObject(0).optString("url", "").substringAfter("watch?v=")
-                    if (videoId.isNotBlank()) {
-                        // 2. Közvetlen audio stream kinyerése
-                        val streamsUrl = "$instance/streams/$videoId"
-                        val streamsReq = Request.Builder().url(streamsUrl).build()
-                        val streamsResp = client.newCall(streamsReq).execute()
+                    // Megnézzük az első 3 találatot, ha az első nem adna vissza audio streamet
+                    val limit = minOf(items.length(), 3)
+                    for (i in 0 until limit) {
+                        val itemObj = items.getJSONObject(i)
+                        val urlField = itemObj.optString("url", "")
+                        val videoId = if (urlField.contains("watch?v=")) {
+                            urlField.substringAfter("watch?v=")
+                        } else {
+                            itemObj.optString("videoId", "")
+                        }
 
-                        if (streamsResp.isSuccessful) {
-                            val streamsBody = streamsResp.body?.string() ?: continue
-                            val audioStreams = JSONObject(streamsBody).optJSONArray("audioStreams")
+                        if (videoId.isNotBlank()) {
+                            val streamsUrl = "$instance/streams/$videoId"
+                            val streamsReq = Request.Builder().url(streamsUrl).build()
+                            val streamsResp = client.newCall(streamsReq).execute()
 
-                            if (audioStreams != null && audioStreams.length() > 0) {
-                                // Visszaadjuk a legjobb minőségű audio stream URL-t
-                                return@withContext audioStreams.getJSONObject(0).optString("url", "")
+                            if (streamsResp.isSuccessful) {
+                                val streamsBody = streamsResp.body?.string() ?: continue
+                                val audioStreams = JSONObject(streamsBody).optJSONArray("audioStreams")
+
+                                if (audioStreams != null && audioStreams.length() > 0) {
+                                    for (j in 0 until audioStreams.length()) {
+                                        val audioObj = audioStreams.getJSONObject(j)
+                                        val audioUrl = audioObj.optString("url", "")
+                                        if (audioUrl.isNotBlank()) {
+                                            return@withContext audioUrl
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -181,7 +207,7 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                         title = title,
                         artist = artistName,
                         coverUrl = coverUrl,
-                        streamUrl = "", // Meghagyjuk üresen, a lejátszáskor szerzi be a teljes számot
+                        streamUrl = "",
                         source = "Spotify"
                     )
                 )
@@ -451,7 +477,7 @@ fun HomeScreen(auth: FirebaseAuth) {
                 lyricsText = fetchSpotifyLyrics(song.id) ?: "Dalszöveg nem érhető el."
             }
 
-            // 2. A TELJES szám audio streamjének lekérése YouTube-ról
+            // 2. A TELJES szám audio streamjének lekérése YouTube-ról (továbbfejlesztett metódussal)
             val fullAudioStreamUrl = fetchFullYoutubeAudioUrl(song.artist, song.title)
 
             if (fullAudioStreamUrl.isNotBlank()) {
@@ -663,93 +689,67 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(260.dp)
-                .shadow(16.dp, RoundedCornerShape(24.dp))
-                .clip(RoundedCornerShape(24.dp))
+                .size(220.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .shadow(10.dp)
         )
-        
-        Spacer(Modifier.height(32.dp))
-        
-        // Cím és előadó
-        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
-            Text(song.title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(song.artist, fontSize = 16.sp, color = Color.LightGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
+        Text(song.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        Text(song.artist, color = Color.Gray, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(20.dp))
 
-        // Keresősáv (Seekbar)
         Slider(
-            value = if (duration > 0f) position / duration else 0f,
-            onValueChange = { 
-                seeking = true
-                position = it * duration
-            },
+            value = position,
+            onValueChange = { seeking = true; position = it },
             onValueChangeFinished = {
-                seeking = false
                 exoPlayer.seekTo(position.toLong())
+                seeking = false
             },
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = Color.DarkGray
-            ),
-            modifier = Modifier.fillMaxWidth()
+            valueRange = 0f..duration,
+            colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary)
         )
-        
-        // Időkijelzés
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatTime(position.toLong()), color = Color.Gray, fontSize = 12.sp)
-            Text(formatTime(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
+            Text(formatMillis(position.toLong()), color = Color.Gray, fontSize = 12.sp)
+            Text(formatMillis(duration.toLong()), color = Color.Gray, fontSize = 12.sp)
         }
         Spacer(Modifier.height(16.dp))
 
-        // Vezérlőgombok
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = { exoPlayer.seekBack() }, modifier = Modifier.size(48.dp)) {
-                Text("⏪", fontSize = 24.sp, color = Color.White)
-            }
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                contentAlignment = Alignment.Center
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                shape = CircleShape,
+                modifier = Modifier.size(72.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Text(if (isPlaying) "⏸" else "▶", fontSize = 32.sp, color = Color.Black)
-            }
-            IconButton(onClick = { exoPlayer.seekForward() }, modifier = Modifier.size(48.dp)) {
-                Text("⏩", fontSize = 24.sp, color = Color.White)
+                Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
             }
         }
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(20.dp))
 
-        // Dalszöveg
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF16221B))
+                .background(Color(0xFF131F18))
                 .padding(16.dp)
         ) {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text("Dalszöveg", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 18.sp)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text("Dalszöveg", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(8.dp))
-                Text(lyrics, color = Color.LightGray, fontSize = 16.sp, lineHeight = 24.sp)
+                Text(lyrics, color = Color.LightGray, fontSize = 14.sp, lineHeight = 20.sp)
             }
         }
     }
 }
 
-// Segédfüggvény az időformázáshoz
-fun formatTime(ms: Long): String {
-    if (ms < 0) return "0:00"
-    val seconds = (ms / 1000) % 60
-    val minutes = (ms / 1000) / 60
+fun formatMillis(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
     return String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
 }
