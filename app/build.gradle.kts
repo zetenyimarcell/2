@@ -72,3 +72,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 }
+dependencies {
+    // Add hozzá ezt a sort:
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
+}
