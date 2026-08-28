@@ -675,32 +675,37 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             ) {
                 Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
             }
-            IconButton(onClick = { }) {
+            IconButton(onClick = { /* Implementáld a következő dal logikát */ }) {
                 Text("⏭", fontSize = 28.sp, color = Color.White)
             }
         }
-        Spacer(Modifier.height(24.dp))
+        
+        Spacer(Modifier.height(32.dp))
+        
+        // Dalszöveg nézet
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF14241B))
-                .verticalScroll(rememberScrollState())
+                .background(Color(0xFF16221B))
                 .padding(16.dp)
         ) {
+            val scrollState = rememberScrollState()
             Text(
                 text = lyrics,
                 color = Color.LightGray,
                 fontSize = 15.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
+                lineHeight = 22.sp,
+                modifier = Modifier.verticalScroll(scrollState)
             )
         }
     }
 }
 
+// Segédfüggvény az időtartam formázásához
 fun formatDuration(durationMs: Long): String {
+    if (durationMs < 0) return "00:00"
     val totalSeconds = durationMs / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
