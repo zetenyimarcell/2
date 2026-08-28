@@ -66,14 +66,10 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
-    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2"
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
     // Hálózati hívások és képbetöltés
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
-}
-dependencies {
-    // Add hozzá ezt a sort:
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
 }
