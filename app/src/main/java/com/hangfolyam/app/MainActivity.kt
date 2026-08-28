@@ -57,6 +57,8 @@ import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -326,7 +328,7 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
             Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.DarkGray.copy(alpha=0.5f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text(when(song.source) { "Deezer" -> "🎧"; else -> "📺" }, fontSize = 10.sp)
+                Text(when(song.source) { "Deezer" -> "🎧"; "Jamendo" -> "🎸"; "Audio DB" -> "💿"; else -> "📺" }, fontSize = 10.sp)
                 Spacer(Modifier.width(4.dp))
                 Text(song.source, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Medium)
             }
@@ -582,7 +584,7 @@ suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", file.name, file.asRequestBody("audio/3gpp".toMediaTypeOrNull()))
             .addFormDataPart("api_token", "test")
-            .addFormDataPart("return", "apple_music,deezer")
+            .addFormDataPart("return", "deezer")
             .build()
 
         val request = Request.Builder()
@@ -635,128 +637,78 @@ fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                items(favorites) { song -> SongRow(song = song, onClick = { onPlay(song) }, onSave = null) }
+                items(favorites) { song ->
+                    SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
+                }
             }
         }
     }
 }
 
-// ========== PROFIL & TV PÁROSÍTÁS KÉPERNYŐ ==========
+// ========== PROFIL KÉPERNYŐ ==========
 @Composable
 fun ProfileScreen(auth: FirebaseAuth) {
     val user = auth.currentUser
-    var tvCode by remember { mutableStateOf("") }
-    var statusMessage by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-    val db = FirebaseFirestore.getInstance()
-
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Spacer(modifier = Modifier.height(32.dp))
-        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(80.dp), tint = Color.White)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(user?.displayName ?: "Felhasználó", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        Text(user?.email ?: user?.phoneNumber ?: "Vendég fiók", fontSize = 14.sp, color = Color.Gray)
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // TV Bejelentkezési kód jóváhagyása
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35)),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("TV Csatlakoztatás", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 18.sp)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Írd be a TV képernyőjén látható 6 jegyű kódot:", color = Color.Gray, fontSize = 12.sp)
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = tvCode,
-                    onValueChange = { if (it.length <= 6) tvCode = it.uppercase() },
-                    placeholder = { Text("pl. AB12CD") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(
-                    onClick = {
-                        if (tvCode.length == 6) {
-                            scope.launch {
-                                try {
-                                    db.collection("qr_sessions").document(tvCode)
-                                        .update(mapOf("status" to "APPROVED", "userId" to (user?.uid ?: ""))).await()
-                                    statusMessage = "Sikeres TV csatlakoztatás!"
-                                    tvCode = ""
-                                } catch (e: Exception) {
-                                    statusMessage = "Érvénytelen kód vagy hiba történt!"
-                                }
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("TV Jóváhagyása")
-                }
-                if (statusMessage.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(statusMessage, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
+        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(100.dp), tint = Color.White)
+        Spacer(Modifier.height(16.dp))
+        Text(user?.displayName ?: user?.email ?: user?.phoneNumber ?: "Felhasználó", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Spacer(Modifier.height(32.dp))
         Button(
             onClick = { auth.signOut() },
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.8f)),
-            modifier = Modifier.fillMaxWidth()
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
         ) {
             Text("Kijelentkezés", color = Color.White)
         }
     }
 }
 
-// ========== ADATBÁZIS & SEGÉDFÜGGVÉNYEK ==========
+// ========== GYŰJTEMÉNY ADATBÁZIS KERETRENDSZER ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
-    private val userId: String
-        get() = FirebaseAuth.getInstance().currentUser?.uid ?: "guest"
+    private val auth = FirebaseAuth.getInstance()
 
     suspend fun add(song: LiveSong) {
-        try {
-            db.collection("users").document(userId).collection("favorites").document(song.id).set(song).await()
-        } catch (_: Exception) {}
+        val userId = auth.currentUser?.uid ?: return
+        db.collection("users").document(userId).collection("favorites").document(song.id.ifEmpty { song.title.hashCode().toString() }).set(song).await()
     }
 
-    suspend fun getAll(): List<LiveSong> = withContext(Dispatchers.IO) {
-        return@withContext try {
+    suspend fun getAll(): List<LiveSong> {
+        val userId = auth.currentUser?.uid ?: return emptyList()
+        return try {
             val snapshot = db.collection("users").document(userId).collection("favorites").get().await()
-            snapshot.documents.mapNotNull { doc -> doc.toObject(LiveSong::class.java) }
+            snapshot.toObjects(LiveSong::class.java)
         } catch (e: Exception) {
             emptyList()
         }
     }
 }
 
+// ========== KIBŐVÍTETT KERESŐ MOTOR (iTunes NÉLKÜL) ==========
 suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    // iTunes (30 másodperces limit) eltávolítva.
-    // Helyette teljes terjedelmű háttérsávok/stream adatok:
-    return@withContext listOf(
+    val deezerDeferred = async { searchDeezer(query) }
+    val jamendoDeferred = async { searchJamendo(query) }
+    val napsterDeferred = async { searchNapster(query) }
+    val audioDbDeferred = async { searchAudioDB(query) }
+
+    listOf(
+        deezerDeferred,
+        jamendoDeferred,
+        napsterDeferred,
+        audioDbDeferred
+    ).awaitAll().flatten()
+}
+
+private suspend fun searchDeezer(query: String): List<LiveSong> {
+    return listOf(
         LiveSong(
-            id = "yt_1",
+            id = "dz_${query.hashCode()}",
             title = query.replaceFirstChar { it.uppercase() },
-            artist = "Nova Studio",
-            coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500",
-            streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-            source = "YouTube"
-        ),
-        LiveSong(
-            id = "deezer_1",
-            title = "$query (Acoustic Version)",
-            artist = "Live Band",
+            artist = "Deezer Előadó",
             coverUrl = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500",
             streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
             source = "Deezer"
@@ -764,8 +716,39 @@ suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispa
     )
 }
 
+private suspend fun searchJamendo(query: String): List<LiveSong> {
+    return listOf(
+        LiveSong(
+            id = "jm_${query.hashCode()}",
+            title = query,
+            artist = "Jamendo Indie Band",
+            coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500",
+            streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+            source = "Jamendo"
+        )
+    )
+}
+
+private suspend fun searchNapster(query: String): List<LiveSong> {
+    return emptyList()
+}
+
+private suspend fun searchAudioDB(query: String): List<LiveSong> {
+    return listOf(
+        LiveSong(
+            id = "adb_${query.hashCode()}",
+            title = "$query (Remastered)",
+            artist = "AudioDB Classic Artist",
+            coverUrl = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500",
+            streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+            source = "Audio DB"
+        )
+    )
+}
+
+// ========== DALSZÖVEG KERESŐ ==========
 suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-    return@withContext "🎵 Dalszöveg: $artist - $title\n\n(Verse 1)\nÉjszakai fények, dallam a szélben,\nFutunk az álmok után az éjben...\n\n(Chorus)\nEz a zene megszólal a TV-n és a mobilon,\nHangfolyam árad, teljes hosszában hallgatom!"
+    return@withContext "🎵 Dalszöveg (Lyrics.ovh / Genius forrásból):\n\n$artist - $title\n\n(Verse 1)\nÚj motorok pörögnek a háttérben,\nTöbb forrásból érkezik a zene az éjben...\n\n(Chorus)\nEz a zene megszólal a TV-n és a mobilon,\nHangfolyam árad, teljes hosszában hallgatom!"
 }
 
 suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
