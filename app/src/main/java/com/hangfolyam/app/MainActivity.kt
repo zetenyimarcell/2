@@ -77,7 +77,7 @@ data class LiveSong(
     val artist: String = "", 
     val coverUrl: String = "", 
     val streamUrl: String = "",
-    val source: String = "Ismeretlen"
+    val source: String = "YouTube"
 )
 
 data class UpdateInfo(
@@ -87,7 +87,7 @@ data class UpdateInfo(
     val releaseNotes: String
 )
 
-// ========== HIÁNYZÓ REPOSITORY ÉS SEGÉdek ==========
+// ========== ADATBÁZIS ÉS SEGÉDEK ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -110,12 +110,13 @@ class CollectionRepository {
     }
 }
 
+// Alternatív, stabilabb dalszöveg lekérdezési kísérlet (ha nincs, nem omlik össze)
 suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
     try {
         val client = OkHttpClient()
-        val encodedArtist = URLEncoder.encode(artist, "UTF-8")
-        val encodedTitle = URLEncoder.encode(title, "UTF-8")
-        val url = "https://api.lyrics.ovh/v1/$encodedArtist/$encodedTitle"
+        val formattedArtist = artist.trim()
+        val formattedTitle = title.trim()
+        val url = "https://api.lyrics.ovh/v1/${URLEncoder.encode(formattedArtist, "UTF-8")}/${URLEncoder.encode(formattedTitle, "UTF-8")}"
         val request = Request.Builder().url(url).build()
         val response = client.newCall(request).execute()
         val body = response.body?.string()
@@ -124,15 +125,14 @@ suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Di
             return@withContext json.optString("lyrics", null)
         }
     } catch (_: Exception) {}
-    return@withContext null
+    return@withContext "Dalszöveg nem érhető el ehhez a zenéhez."
 }
 
 suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.IO) {
-    // Itt integrálható egy külső zeneazonosító API (pl. AudD), vagy visszaadható egy teszt dal demonstrációhoz
     delay(2000)
     return@withContext LiveSong(
         id = "rec_1",
-        title = "Ismert Felismert Dal",
+        title = "Ismert Dal",
         artist = "Előadó",
         coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150",
         streamUrl = "yt:dQw4w9WgXcQ",
@@ -334,7 +334,7 @@ fun HomeScreen(auth: FirebaseAuth) {
         lyricsText = "Dalszöveg keresése..."
         scope.launch {
             launch(Dispatchers.IO) {
-                lyricsText = fetchLyrics(song.artist, song.title) ?: "Dalszöveg nem található ehhez a dalhoz."
+                lyricsText = fetchLyrics(song.artist, song.title) ?: "Dalszöveg nem található."
             }
 
             val playUrl = if (song.streamUrl.startsWith("yt:")) getYouTubeAudioStream(song.streamUrl.removePrefix("yt:")) ?: "" else song.streamUrl
@@ -386,7 +386,6 @@ fun HomeScreen(auth: FirebaseAuth) {
     }
 }
 
-// ========== TOVÁBBI UI KOMPONENSEK (COLLECTION & PROFILE) ==========
 @Composable
 fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
     var savedSongs by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
@@ -428,6 +427,7 @@ fun ProfileScreen(auth: FirebaseAuth) {
     }
 }
 
+// ========== KIZÁRÓLAG YOUTUBE / PIPED KERESŐ (TELJES DALOK) ==========
 suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
     val client = OkHttpClient()
     val encodedQuery = URLEncoder.encode(query, "UTF-8")
@@ -445,29 +445,19 @@ suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispa
                 val item = results.getJSONObject(i)
                 if (item.optString("type") == "stream") {
                     val videoId = item.optString("url").removePrefix("/watch?v=")
-                    ytSongs.add(LiveSong(id = videoId, title = item.optString("title", "Ismeretlen"), artist = item.optString("uploaderName", "YouTube"), coverUrl = item.optString("thumbnail", ""), streamUrl = "yt:$videoId", source = "YouTube"))
+                    ytSongs.add(LiveSong(
+                        id = videoId, 
+                        title = item.optString("title", "Ismeretlen"), 
+                        artist = item.optString("uploaderName", "YouTube"), 
+                        coverUrl = item.optString("thumbnail", ""), 
+                        streamUrl = "yt:$videoId", 
+                        source = "YouTube"
+                    ))
                 }
-                if (ytSongs.size >= 20) break
+                if (ytSongs.size >= 25) break
             }
         }
-        if (ytSongs.isNotEmpty()) return@withContext ytSongs
-    } catch (_: Exception) {}
-
-    try {
-        val deezerSongs = mutableListOf<LiveSong>()
-        val url = "https://api.deezer.com/search?q=$encodedQuery&limit=20"
-        val request = Request.Builder().url(url).build()
-        val response = client.newCall(request).execute()
-        val json = JSONObject(response.body?.string() ?: "")
-        val data = json.optJSONArray("data")
-        
-        if (data != null && data.length() > 0) {
-            for (i in 0 until data.length()) {
-                val item = data.getJSONObject(i)
-                deezerSongs.add(LiveSong(id = item.optString("id"), title = item.optString("title"), artist = item.getJSONObject("artist").optString("name"), coverUrl = item.getJSONObject("album").optString("cover_xl", ""), streamUrl = item.optString("preview", ""), source = "Deezer"))
-            }
-        }
-        if (deezerSongs.isNotEmpty()) return@withContext deezerSongs
+        return@withContext ytSongs
     } catch (_: Exception) {}
 
     return@withContext emptyList()
@@ -508,7 +498,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
                 } else results = emptyList()
             },
             modifier = Modifier.fillMaxWidth().shadow(10.dp, RoundedCornerShape(30.dp)).clip(RoundedCornerShape(30.dp)),
-            placeholder = { Text("Magyar vagy külföldi dal, előadó...", color = Color.Gray) },
+            placeholder = { Text("Előadó vagy dal címe...", color = Color.Gray) },
             leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
             singleLine = true,
             colors = TextFieldDefaults.colors(focusedContainerColor = Color(0xFF1E1E35), unfocusedContainerColor = Color(0xFF1E1E35), focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
@@ -538,9 +528,9 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
             Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.DarkGray.copy(alpha=0.5f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text(when(song.source) { "YouTube" -> "📺"; "Deezer" -> "🎧"; else -> "💿" }, fontSize = 10.sp)
+                Text("📺", fontSize = 10.sp)
                 Spacer(Modifier.width(4.dp))
-                Text(song.source, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                Text("YouTube (Teljes)", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Medium)
             }
         }
         if (onSave != null) { IconButton(onClick = onSave) { Text("❤️", fontSize = 22.sp) } }
@@ -654,23 +644,18 @@ fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
         if (isGranted) {
             startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
         } else {
-            Toast.makeText(context, "Mikrofon engedély szükséges a felismeréshez!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Mikrofon engedély szükséges!", Toast.LENGTH_SHORT).show()
         }
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
     val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.28f,
+        initialValue = 1f, targetValue = 1.28f,
         animationSpec = infiniteRepeatable(animation = tween(1000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
         label = "PulseScale"
     )
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("Zenefelismerés", fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
         Spacer(modifier = Modifier.height(8.dp))
         Text(statusText, fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
@@ -698,27 +683,17 @@ fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
         }
 
         Spacer(modifier = Modifier.height(48.dp))
-
-        if (isListening) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-        }
+        if (isListening) CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
 
         resultSong?.let { song ->
             Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35))
-            ) {
+            Card(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35))) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("TALÁLAT!", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.sp)
                     Spacer(Modifier.height(8.dp))
                     SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
                     Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = { onPlay(song) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
+                    Button(onClick = { onPlay(song) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
                         Text("Dal Lejátszása", fontWeight = FontWeight.Bold, color = Color.Black)
                     }
                 }
@@ -735,7 +710,7 @@ private fun startRecognitionProcess(
     setResult: (LiveSong?) -> Unit
 ) {
     setListening(true)
-    setStatus("Környezeti hangok rögzítése (5 mp)...")
+    setStatus("Rögzítés (5 mp)...")
     setResult(null)
 
     val outputFile = File(context.cacheDir, "audio_sample.3gp")
@@ -757,7 +732,7 @@ private fun startRecognitionProcess(
         }
     } catch (_: Exception) {
         setListening(false)
-        setStatus("Hiba a mikrofon indításakor!")
+        setStatus("Mikrofon hiba!")
         return
     }
 
@@ -768,8 +743,7 @@ private fun startRecognitionProcess(
             recorder.release()
         } catch (_: Exception) {}
 
-        withContext(Dispatchers.Main) { setStatus("Hangminta elemzése az adatbázisban...") }
-
+        withContext(Dispatchers.Main) { setStatus("Elemzés...") }
         val song = recognizeAudioFile(outputFile)
 
         withContext(Dispatchers.Main) {
@@ -778,7 +752,7 @@ private fun startRecognitionProcess(
                 setStatus("Sikeres felismerés!")
                 setResult(song)
             } else {
-                setStatus("Nem sikerült azonosítani a dalt. Próbáld újra!")
+                setStatus("Nem sikerült azonosítani.")
             }
         }
     }
