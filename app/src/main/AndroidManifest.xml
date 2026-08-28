@@ -19,8 +19,7 @@
         android:label="Nova Zene"
         android:icon="@drawable/ic_logo"
         android:banner="@drawable/ic_logo"
-        android:theme="@style/Theme.Hangfolyam">
-
+        android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".MainActivity"
             android:exported="true">
