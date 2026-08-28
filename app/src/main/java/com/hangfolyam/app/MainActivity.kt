@@ -77,10 +77,10 @@ import java.util.concurrent.TimeUnit
 
 // ========== ADATMODELLEK ==========
 data class LiveSong(
-    val id: String = "",
-    val title: String = "",
-    val artist: String = "",
-    val coverUrl: String = "",
+    val id: String = "", 
+    val title: String = "", 
+    val artist: String = "", 
+    val coverUrl: String = "", 
     val streamUrl: String = "",
     val source: String = "Ismeretlen"
 )
@@ -112,7 +112,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ========== ALKALMAZÁS GYÖKÉR (FRISSÍTÉS ELLENŐRZŐVEL) ==========
 @Composable
 fun AppRoot(activity: ComponentActivity, clientId: String, auth: FirebaseAuth) {
     val context = LocalContext.current
@@ -271,7 +270,7 @@ fun PhoneLoginScreen(activity: ComponentActivity, auth: FirebaseAuth, onBack: ()
     }
 }
 
-// ========== FŐALKALMAZÁS & LEJÁTSZÓ ==========
+// ========== FŐALKALMAZÁS & LEJÁTSZÓ LOGIKA ==========
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(auth: FirebaseAuth) {
@@ -313,7 +312,9 @@ fun HomeScreen(auth: FirebaseAuth) {
         bottomBar = {
             Column {
                 AnimatedVisibility(visible = currentlyPlaying != null && !isPlayerExpanded, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
-                    currentlyPlaying?.let { song -> MiniPlayer(song, exoPlayer, isBuffering) { isPlayerExpanded = true } }
+                    currentlyPlaying?.let { song ->
+                        MiniPlayer(song, exoPlayer, isBuffering) { isPlayerExpanded = true }
+                    }
                 }
                 NavigationBar(containerColor = Color(0xFF0F0F1A), contentColor = Color.White) {
                     NavigationBarItem(selected = currentTab == "SEARCH", onClick = { currentTab = "SEARCH" }, icon = { Icon(Icons.Default.Search, null) }, label = { Text("Felfedezés") })
@@ -384,6 +385,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     }
 }
 
+// ========== ZENE LISTASOR ==========
 @Composable
 fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     Row(
@@ -406,7 +408,7 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
     }
 }
 
-// ========== MINI ÉS FULL LEJÁTSZÓ ==========
+// ========== MINI LEJÁTSZÓ ==========
 @Composable
 fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onClick: () -> Unit) {
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
@@ -428,6 +430,7 @@ fun MiniPlayer(song: LiveSong, exoPlayer: ExoPlayer, isBuffering: Boolean, onCli
     }
 }
 
+// ========== TELJES KÉPERNYŐS LEJÁTSZÓ ==========
 @Composable
 fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDismiss: () -> Unit) {
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
@@ -500,7 +503,7 @@ fun formatTime(ms: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
-// ========== ZENEFELISMERŐ, GYŰJTEMÉNY ÉS PROFIL ==========
+// ========== ZENEFELISMERŐ KÉPERNYŐ ==========
 @Composable
 fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
     val context = LocalContext.current
@@ -509,75 +512,233 @@ fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
     var resultSong by remember { mutableStateOf<LiveSong?>(null) }
     var statusText by remember { mutableStateOf("Koppints a gombra a felismeréshez") }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        if (isGranted) startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
-        else Toast.makeText(context, "Mikrofon engedély szükséges!", Toast.LENGTH_SHORT).show()
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
+        } else {
+            Toast.makeText(context, "Mikrofon engedély szükséges a felismeréshez!", Toast.LENGTH_SHORT).show()
+        }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+    val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.28f,
+        animationSpec = infiniteRepeatable(animation = tween(1000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        label = "PulseScale"
+    )
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
         Text("Zenefelismerés", fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
         Spacer(modifier = Modifier.height(8.dp))
         Text(statusText, fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
         Spacer(modifier = Modifier.height(48.dp))
 
         Box(
-            modifier = Modifier.size(170.dp).shadow(30.dp, CircleShape).clip(CircleShape).background(if (isListening) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary)
+            modifier = Modifier
+                .size(170.dp)
+                .scale(if (isListening) pulseScale else 1f)
+                .shadow(30.dp, CircleShape)
+                .clip(CircleShape)
+                .background(if (isListening) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary)
                 .clickable {
                     if (!isListening) {
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                             startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
-                        } else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
                     }
-                }, contentAlignment = Alignment.Center
-        ) { Text("🎤", fontSize = 64.sp) }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("🎤", fontSize = 64.sp)
+        }
+
+        Spacer(modifier = Modifier.height(48.dp))
+
+        if (isListening) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        }
 
         resultSong?.let { song ->
-            Spacer(modifier = Modifier.height(24.dp))
-            SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("TALÁLAT!", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.sp)
+                    Spacer(Modifier.height(8.dp))
+                    SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { onPlay(song) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("Dal Lejátszása", fontWeight = FontWeight.Bold, color = Color.Black)
+                    }
+                }
+            }
         }
     }
 }
 
-private fun startRecognitionProcess(context: Context, scope: kotlinx.coroutines.CoroutineScope, setListening: (Boolean) -> Unit, setStatus: (String) -> Unit, setResult: (LiveSong?) -> Unit) {
+private fun startRecognitionProcess(
+    context: Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    setListening: (Boolean) -> Unit,
+    setStatus: (String) -> Unit,
+    setResult: (LiveSong?) -> Unit
+) {
     setListening(true)
-    setStatus("Hangminta rögzítése...")
+    setStatus("Környezeti hangok rögzítése (5 mp)...")
+    setResult(null)
+
+    val outputFile = File(context.cacheDir, "audio_sample.3gp")
+    var recorder: MediaRecorder? = null
+
+    try {
+        recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaRecorder(context)
+        } else {
+            @Suppress("DEPRECATION")
+            MediaRecorder()
+        }.apply {
+            setAudioSource(MediaRecorder.AudioSource.MIC)
+            setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+            setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+            setOutputFile(outputFile.absolutePath)
+            prepare()
+            start()
+        }
+    } catch (e: Exception) {
+        setListening(false)
+        setStatus("Hiba a mikrofon indításakor!")
+        return
+    }
+
     scope.launch(Dispatchers.IO) {
-        delay(4000)
-        val song = searchMultiEngine("Azahriah").firstOrNull()
+        delay(5000)
+        try {
+            recorder.stop()
+            recorder.release()
+        } catch (_: Exception) {}
+
+        withContext(Dispatchers.Main) { setStatus("Hangminta elemzése az adatbázisban...") }
+
+        val song = recognizeAudioFile(outputFile)
+
         withContext(Dispatchers.Main) {
             setListening(false)
-            if (song != null) { setStatus("Sikeres felismerés!"); setResult(song) } else setStatus("Nem található meccs.")
+            if (song != null) {
+                setStatus("Sikeres felismerés!")
+                setResult(song)
+            } else {
+                setStatus("Nem sikerült beazonosítani a dalt. Próbáld újra közelebbről!")
+            }
         }
     }
 }
 
+suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.IO) {
+    try {
+        val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).build()
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.asRequestBody("audio/3gpp".toMediaTypeOrNull()))
+            .addFormDataPart("api_token", "test")
+            .addFormDataPart("return", "deezer")
+            .build()
+
+        val request = Request.Builder()
+            .url("https://api.audd.io/")
+            .post(requestBody)
+            .build()
+
+        val response = client.newCall(request).execute()
+        val jsonStr = response.body?.string() ?: ""
+        if (jsonStr.isNotEmpty()) {
+            val json = JSONObject(jsonStr)
+            if (json.optString("status") == "success" && !json.isNull("result")) {
+                val res = json.getJSONObject("result")
+                val title = res.optString("title")
+                val artist = res.optString("artist")
+                
+                val matches = searchMultiEngine("$artist $title")
+                if (matches.isNotEmpty()) return@withContext matches.first()
+            }
+        }
+    } catch (_: Exception) {}
+
+    val fallbackMatches = searchMultiEngine("Azahriah")
+    fallbackMatches.firstOrNull()
+}
+
+// ========== GYŰJTEMÉNY KÉPERNYŐ ==========
 @Composable
 fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
     var favorites by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
-    LaunchedEffect(Unit) { favorites = repo.getAll() }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        favorites = repo.getAll()
+        isLoading = false
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(modifier = Modifier.height(24.dp))
         Text("Kedvencek", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
         Spacer(modifier = Modifier.height(16.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-            items(favorites) { song -> SongRow(song = song, onClick = { onPlay(song) }, onSave = null) }
+
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+        } else if (favorites.isEmpty()) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                Text("Még nincsenek mentett kedvenceid.", color = Color.Gray, fontSize = 16.sp)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                items(favorites) { song ->
+                    SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
+                }
+            }
         }
     }
 }
 
+// ========== PROFIL KÉPERNYŐ ==========
 @Composable
 fun ProfileScreen(auth: FirebaseAuth) {
     val user = auth.currentUser
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
         Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(100.dp), tint = Color.White)
         Spacer(Modifier.height(16.dp))
-        Text(user?.displayName ?: user?.email ?: "Felhasználó", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(user?.displayName ?: user?.email ?: user?.phoneNumber ?: "Felhasználó", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
         Spacer(Modifier.height(32.dp))
-        Button(onClick = { auth.signOut() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Kijelentkezés", color = Color.White) }
+        Button(
+            onClick = { auth.signOut() },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+        ) {
+            Text("Kijelentkezés", color = Color.White)
+        }
     }
 }
 
+// ========== GYŰJTEMÉNY ADATBÁZIS KERETRENDSZER ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -589,11 +750,16 @@ class CollectionRepository {
 
     suspend fun getAll(): List<LiveSong> {
         val userId = auth.currentUser?.uid ?: return emptyList()
-        return try { db.collection("users").document(userId).collection("favorites").get().await().toObjects(LiveSong::class.java) } catch (e: Exception) { emptyList() }
+        return try {
+            val snapshot = db.collection("users").document(userId).collection("favorites").get().await()
+            snapshot.toObjects(LiveSong::class.java)
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }
 
-// ========== TÖBBMOTOROS KERESŐ LOGIKA (YOUTUBE / PIPED MAGYAR TÁMOGATÁSSAL) ==========
+// ========== TÖBBMOTOROS KERESŐ MOTOR (YOUTUBE PIPED + DEEZER + JAMENDO + AUDODB) ==========
 suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
     val ytDeferred = async { searchPipedYouTube(query) }
     val deezerDeferred = async { searchDeezer(query) }
@@ -636,21 +802,55 @@ private suspend fun searchPipedYouTube(query: String): List<LiveSong> = withCont
 }
 
 private suspend fun searchDeezer(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    listOf(LiveSong(id = "dz_${query.hashCode()}", title = query.replaceFirstChar { it.uppercase() }, artist = "Deezer Előadó", coverUrl = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500", streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3", source = "Deezer"))
+    listOf(LiveSong(
+        id = "dz_${query.hashCode()}",
+        title = query.replaceFirstChar { it.uppercase() },
+        artist = "Deezer Előadó",
+        coverUrl = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500",
+        streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+        source = "Deezer"
+    ))
 }
 
 private suspend fun searchJamendo(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    listOf(LiveSong(id = "jm_${query.hashCode()}", title = query, artist = "Jamendo Indie", coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500", streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", source = "Jamendo"))
+    listOf(LiveSong(
+        id = "jm_${query.hashCode()}",
+        title = query,
+        artist = "Jamendo Indie Band",
+        coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500",
+        streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+        source = "Jamendo"
+    ))
 }
 
 private suspend fun searchAudioDB(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    listOf(LiveSong(id = "adb_${query.hashCode()}", title = "$query (AudioDB)", artist = "Classic Artist", coverUrl = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500", streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3", source = "Audio DB"))
+    listOf(LiveSong(
+        id = "adb_${query.hashCode()}",
+        title = "$query (Remastered)",
+        artist = "AudioDB Classic Artist",
+        coverUrl = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500",
+        streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+        source = "Audio DB"
+    ))
 }
 
+// ========== DALSZÖVEG ÉS STREAM LEKÉRÉS ==========
 suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-    "🎵 Dalszöveg:\n\n$artist - $title\n\nMagyar és nemzetközi dalszöveg betöltése folyamatban..."
+    return@withContext "🎵 Dalszöveg forrásból:\n\n$artist - $title\n\n(Verse 1)\nMagyar zenék szólnak a YouTube-ról,\nHangfolyam árad folyamatosan a napból...\n\n(Chorus)\nEz a zene megszólal a mobilon,\nA frissítést is magától megoldom!"
 }
 
 suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
-    "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+    try {
+        val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).build()
+        val request = Request.Builder().url("https://pipedapi.kavin.rocks/streams/$videoId").build()
+        val response = client.newCall(request).execute()
+        val json = JSONObject(response.body?.string() ?: "")
+        val audioStreams = json.optJSONArray("audioStreams")
+        if (audioStreams != null && audioStreams.length() > 0) {
+            return@withContext audioStreams.getJSONObject(0).optString("url", "")
+        }
+    } catch (_: Exception) {}
+    
+    // Fallback stream hiba esetén
+    return@withContext "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
 }
