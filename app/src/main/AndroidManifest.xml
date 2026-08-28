@@ -13,6 +13,7 @@
         android:allowBackup="true"
         android:label="Spotify Nova"
         android:supportsRtl="true">
+        android:usesCleartextTraffic="true">
 
         <!-- Fő Activity -->
         <activity
