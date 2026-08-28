@@ -44,10 +44,14 @@ android {
 }
 
 dependencies {
-    // Firebase
+    // Firebase BoM & Services
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-firestore")
+
+    // Google Sign-In
+    implementation("com.google.android.gms:play-services-auth:20.7.0")
 
     // Compose UI
     implementation(platform("androidx.compose:compose-bom:2023.10.01"))
@@ -57,13 +61,12 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
 
-    // Google Login
-    implementation("androidx.credentials:credentials:1.2.0")
-    implementation("androidx.credentials:credentials-play-services-auth:1.2.0")
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.0")
-
-    // Zenelejátszó
+    // Media3 (ExoPlayer)
     implementation("androidx.media3:media3-exoplayer:1.2.1")
     implementation("androidx.media3:media3-ui:1.2.1")
+
+    // Hálózati hívások és képbetöltés
     implementation("io.coil-kt:coil-compose:2.5.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 }
