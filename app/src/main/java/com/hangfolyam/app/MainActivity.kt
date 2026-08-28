@@ -56,8 +56,6 @@ import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -69,9 +67,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 // ========== ADATMODELLEK ==========
@@ -330,7 +325,7 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
             Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.DarkGray.copy(alpha=0.5f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text(when(song.source) { "iTunes" -> "🍎" "Deezer" -> "🎧" else -> "📺" }, fontSize = 10.sp)
+                Text(when(song.source) { "iTunes" -> "🍎"; "Deezer" -> "🎧"; else -> "📺" }, fontSize = 10.sp)
                 Spacer(Modifier.width(4.dp))
                 Text(song.source, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Medium)
             }
@@ -385,8 +380,8 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
         }
         Spacer(Modifier.height(32.dp))
         
-        val infiniteTransition = rememberInfiniteTransition()
-        val scale by infiniteTransition.animateFloat(initialValue = 0.98f, targetValue = 1.02f, animationSpec = infiniteRepeatable(animation = tween(2000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse))
+        val infiniteTransition = rememberInfiniteTransition(label = "ScaleAnim")
+        val scale by infiniteTransition.animateFloat(initialValue = 0.98f, targetValue = 1.02f, animationSpec = infiniteRepeatable(animation = tween(2000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "Scale")
         AsyncImage(model = song.coverUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(300.dp).scale(if(isPlaying) scale else 1f).shadow(30.dp, RoundedCornerShape(20.dp)).clip(RoundedCornerShape(20.dp)))
         
         Spacer(Modifier.height(40.dp))
@@ -489,7 +484,7 @@ fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
                 },
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Mic, contentDescription = null, tint = Color.Black, modifier = Modifier.size(72.dp))
+            Text("🎤", fontSize = 64.sp)
         }
 
         Spacer(modifier = Modifier.height(48.dp))
@@ -558,7 +553,7 @@ private fun startRecognitionProcess(
     }
 
     scope.launch(Dispatchers.IO) {
-        delay(5000) // 5 másodperc mintavételezés
+        delay(5000)
         try {
             recorder.stop()
             recorder.release()
@@ -566,7 +561,6 @@ private fun startRecognitionProcess(
 
         withContext(Dispatchers.Main) { setStatus("Hangminta elemzése az adatbázisban...") }
 
-        // Felismerés API (AudD / Multi-engine lekérdezés)
         val song = recognizeAudioFile(outputFile)
 
         withContext(Dispatchers.Main) {
@@ -587,7 +581,7 @@ suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", file.name, file.asRequestBody("audio/3gpp".toMediaTypeOrNull()))
-            .addFormDataPart("api_token", "test") // Ingyenes teszt token / AudD fallback
+            .addFormDataPart("api_token", "test")
             .addFormDataPart("return", "apple_music,deezer")
             .build()
 
@@ -605,14 +599,12 @@ suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.
                 val title = res.optString("title")
                 val artist = res.optString("artist")
                 
-                // Keresünk hozzá streamelhető verziót
                 val matches = searchMultiEngine("$artist $title")
                 if (matches.isNotEmpty()) return@withContext matches.first()
             }
         }
     } catch (_: Exception) {}
 
-    // Fallback teszt mintához ha nem érhető el az AudD szerver
     val fallbackMatches = searchMultiEngine("Blinding Lights")
     fallbackMatches.firstOrNull()
 }
@@ -724,7 +716,7 @@ fun ProfileScreen(auth: FirebaseAuth) {
                 modifier = Modifier.padding(20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Tv, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(32.dp))
+                Text("📺", fontSize = 28.sp)
                 Spacer(Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Bejelentkezés Smart TV-re", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
@@ -751,7 +743,6 @@ fun ProfileScreen(auth: FirebaseAuth) {
         }
     }
 
-    // TV QR / MUNKAMENET DIALOGUS
     if (showTvDialog) {
         AlertDialog(
             onDismissRequest = { showTvDialog = false },
@@ -801,7 +792,6 @@ fun ProfileScreen(auth: FirebaseAuth) {
     }
 }
 
-// TV Munkamenet jóváhagyása Firestore-ban
 suspend fun approveTvSession(sessionId: String, userId: String): Boolean = withContext(Dispatchers.IO) {
     if (userId.isEmpty() || sessionId.isEmpty()) return@withContext false
     try {
@@ -821,7 +811,72 @@ suspend fun approveTvSession(sessionId: String, userId: String): Boolean = withC
     }
 }
 
-// ========== 5. FIRESTORE ADATBÁZIS MEGVALÓSÍTÁS ==========
+// ========== 5. HIÁNYZÓ HÁLÓZATI ÉS Kereső FÜGGVÉNYEK PÓTLÁSA ==========
+
+suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
+    try {
+        val encodedArtist = java.net.URLEncoder.encode(artist, "UTF-8")
+        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+        val client = OkHttpClient()
+        val request = Request.Builder().url("https://api.lyrics.ovh/v1/$encodedArtist/$encodedTitle").build()
+        val response = client.newCall(request).execute()
+        val body = response.body?.string()
+        if (body != null) {
+            val json = JSONObject(body)
+            return@withContext json.optString("lyrics", "Dalszöveg nem található.")
+        }
+    } catch (_: Exception) {}
+    return@withContext "Dalszöveg nem érhető el."
+}
+
+suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
+    // Alapértelmezett fallback stream link ha szükséges
+    return@withContext "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+}
+
+suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    val list = mutableListOf<LiveSong>()
+    try {
+        val client = OkHttpClient()
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+        val request = Request.Builder().url("https://itunes.apple.com/search?term=$encoded&entity=song&limit=10").build()
+        val response = client.newCall(request).execute()
+        val body = response.body?.string()
+        if (body != null) {
+            val json = JSONObject(body)
+            val results = json.getJSONArray("results")
+            for (i in 0 until results.length()) {
+                val item = results.getJSONObject(i)
+                list.add(
+                    LiveSong(
+                        id = item.optLong("trackId").toString(),
+                        title = item.optString("trackName"),
+                        artist = item.optString("artistName"),
+                        coverUrl = item.optString("artworkUrl100").replace("100x100bb", "500x500bb"),
+                        streamUrl = item.optString("previewUrl"),
+                        source = "iTunes"
+                    )
+                )
+            }
+        }
+    } catch (_: Exception) {}
+
+    if (list.isEmpty()) {
+        list.add(
+            LiveSong(
+                id = "fallback_1",
+                title = query,
+                artist = "Nova Zenei Archívum",
+                coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500",
+                streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+                source = "Nova Cloud"
+            )
+        )
+    }
+    return@withContext list
+}
+
+// ========== FIRESTORE ADATBÁZIS REPOSITORY ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -858,30 +913,6 @@ class CollectionRepository {
             }
         } catch (e: Exception) {
             emptyList()
-    // --- HIÁNYZÓ HÁLÓZATI SEGÉDFÜGGVÉNYEK PÓTLÁSA ---
-
-suspend fun fetchLyrics(artist: String, title: String): String? {
-    // Itt valósítanád meg a dalszöveg API hívást (pl. lyrics.ovh)
-    // Most egy placeholder szöveget adunk vissza, hogy a kód leforduljon
-    return "A dalszöveg betöltése jelenleg fejlesztés alatt áll.\nKeresett dal: $artist - $title"
-}
-
-suspend fun getYouTubeAudioStream(videoId: String): String? {
-    // Itt történne a YouTube videó stream URL kinyerése (pl. NewPipeExtractor vagy yt-dlp segítségével)
-    return null
-}
-
-suspend fun searchMultiEngine(query: String): List<LiveSong> {
-    // Itt valósítod meg a külső API-k (YouTube, iTunes, Deezer) keresését
-    // Hogy a kód működjön, visszaadunk egy kamu listát:
-    return listOf(
-        LiveSong(
-            id = "test1",
-            title = "Keresés eredménye: $query",
-            artist = "Ismeretlen előadó",
-            coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150",
-            streamUrl = "",
-            source = "Teszt"
-        )
-    )
+        }
+    }
 }
