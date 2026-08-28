@@ -85,25 +85,46 @@ data class UpdateInfo(
     val releaseNotes: String
 )
 
-// ========== DEEZER TARTALÉK HANGMOTOR ==========
-// Ha a Spotify nem ad preview URL-t, lekérjük a Deezer ingyenes adatbázisából az MP3 mintát
-suspend fun fetchFallbackPreviewUrl(artist: String, title: String): String = withContext(Dispatchers.IO) {
-    val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).build()
-    val query = URLEncoder.encode("$artist $title", "UTF-8")
-    val url = "https://api.deezer.com/search?q=$query"
-    val request = Request.Builder().url(url).build()
+// ========== YOUTUBE / PIPED TELJES AUDIO MOTOR ==========
+// A YouTube hálózatáról kéri le a dal TELJES 3-4 perces hanganyagát (30mp korlát nélkül)
+suspend fun fetchFullYoutubeAudioUrl(artist: String, title: String): String = withContext(Dispatchers.IO) {
+    val client = OkHttpClient.Builder().connectTimeout(6, TimeUnit.SECONDS).build()
+    val searchQuery = URLEncoder.encode("$artist $title audio", "UTF-8")
+    val pipedInstances = listOf("https://pipedapi.kavin.rocks", "https://api.piped.private.coffee")
 
-    try {
-        val response = client.newCall(request).execute()
-        if (response.isSuccessful) {
-            val body = response.body?.string() ?: return@withContext ""
-            val json = JSONObject(body)
-            val data = json.optJSONArray("data")
-            if (data != null && data.length() > 0) {
-                return@withContext data.getJSONObject(0).optString("preview", "")
+    for (instance in pipedInstances) {
+        try {
+            // 1. Keresés YouTube-on
+            val searchUrl = "$instance/search?q=$searchQuery&filter=music_songs"
+            val searchReq = Request.Builder().url(searchUrl).build()
+            val searchResp = client.newCall(searchReq).execute()
+
+            if (searchResp.isSuccessful) {
+                val searchBody = searchResp.body?.string() ?: continue
+                val items = JSONObject(searchBody).optJSONArray("items")
+
+                if (items != null && items.length() > 0) {
+                    val videoId = items.getJSONObject(0).optString("url", "").substringAfter("watch?v=")
+                    if (videoId.isNotBlank()) {
+                        // 2. Közvetlen audio stream kinyerése
+                        val streamsUrl = "$instance/streams/$videoId"
+                        val streamsReq = Request.Builder().url(streamsUrl).build()
+                        val streamsResp = client.newCall(streamsReq).execute()
+
+                        if (streamsResp.isSuccessful) {
+                            val streamsBody = streamsResp.body?.string() ?: continue
+                            val audioStreams = JSONObject(streamsBody).optJSONArray("audioStreams")
+
+                            if (audioStreams != null && audioStreams.length() > 0) {
+                                // Visszaadjuk a legjobb minőségű audio stream URL-t
+                                return@withContext audioStreams.getJSONObject(0).optString("url", "")
+                            }
+                        }
+                    }
+                }
             }
-        }
-    } catch (_: Exception) {}
+        } catch (_: Exception) {}
+    }
     return@withContext ""
 }
 
@@ -154,22 +175,13 @@ suspend fun searchSpotifyAPI(query: String): List<LiveSong> = withContext(Dispat
                     coverUrl = coverArt.getJSONObject(0).optString("url", "")
                 }
 
-                var previewUrl = ""
-                val audioPreview = data.optJSONObject("audioPreview")
-                if (audioPreview != null) {
-                    previewUrl = audioPreview.optString("url", "")
-                }
-                if (previewUrl.isEmpty()) {
-                    previewUrl = data.optString("preview_url", "")
-                }
-
                 songsList.add(
                     LiveSong(
                         id = trackId,
                         title = title,
                         artist = artistName,
                         coverUrl = coverUrl,
-                        streamUrl = previewUrl,
+                        streamUrl = "", // Meghagyjuk üresen, a lejátszáskor szerzi be a teljes számot
                         source = "Spotify"
                     )
                 )
@@ -355,7 +367,7 @@ fun LoginScreen(activity: ComponentActivity, clientId: String, auth: FirebaseAut
             }
             Spacer(Modifier.height(24.dp))
             Text("Spotify Nova", fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-            Text("Keresés és dalszövegek a Spotify adatbázisából.", fontSize = 15.sp, color = Color.Gray, textAlign = TextAlign.Center)
+            Text("Teljes hosszúságú lejátszás és dalszövegek.", fontSize = 15.sp, color = Color.Gray, textAlign = TextAlign.Center)
             Spacer(Modifier.height(64.dp))
 
             if (isLoading) CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
@@ -439,18 +451,15 @@ fun HomeScreen(auth: FirebaseAuth) {
                 lyricsText = fetchSpotifyLyrics(song.id) ?: "Dalszöveg nem érhető el."
             }
 
-            // 2. Lejátszási URL meglétének ellenőrzése / tartalék keresése Deezeren
-            var finalStreamUrl = song.streamUrl
-            if (finalStreamUrl.isBlank()) {
-                finalStreamUrl = fetchFallbackPreviewUrl(song.artist, song.title)
-            }
+            // 2. A TELJES szám audio streamjének lekérése YouTube-ról
+            val fullAudioStreamUrl = fetchFullYoutubeAudioUrl(song.artist, song.title)
 
-            if (finalStreamUrl.isNotBlank()) {
-                exoPlayer.setMediaItem(MediaItem.fromUri(finalStreamUrl))
+            if (fullAudioStreamUrl.isNotBlank()) {
+                exoPlayer.setMediaItem(MediaItem.fromUri(fullAudioStreamUrl))
                 exoPlayer.prepare()
                 exoPlayer.play()
             } else {
-                Toast.makeText(context, "Nem található lejátszható minta ehhez a dalhoz.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Hiba a lejátszási hivatkozás betöltésekor.", Toast.LENGTH_SHORT).show()
             }
             isBuffering = false
         }
@@ -465,7 +474,7 @@ fun HomeScreen(auth: FirebaseAuth) {
                     }
                 }
                 NavigationBar(containerColor = Color(0xFF0F0F1A), contentColor = Color.White) {
-                    NavigationBarItem(selected = currentTab == "SEARCH", onClick = { currentTab = "SEARCH" }, icon = { Icon(Icons.Default.Search, null) }, label = { Text("Spotify Kereső") })
+                    NavigationBarItem(selected = currentTab == "SEARCH", onClick = { currentTab = "SEARCH" }, icon = { Icon(Icons.Default.Search, null) }, label = { Text("Kereső") })
                     NavigationBarItem(selected = currentTab == "COLLECTION", onClick = { currentTab = "COLLECTION" }, icon = { Text("❤️", fontSize = 18.sp) }, label = { Text("Gyűjtemény") })
                     NavigationBarItem(selected = currentTab == "PROFILE", onClick = { currentTab = "PROFILE" }, icon = { Icon(Icons.Default.Person, null) }, label = { Text("Profil") })
                 }
@@ -502,7 +511,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Spotify Keresés", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+        Text("Keresés", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
         Spacer(modifier = Modifier.height(16.dp))
         OutlinedTextField(
             value = query, onValueChange = { 
@@ -513,7 +522,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
                 } else results = emptyList()
             },
             modifier = Modifier.fillMaxWidth().shadow(10.dp, RoundedCornerShape(30.dp)).clip(RoundedCornerShape(30.dp)),
-            placeholder = { Text("Keress dalt vagy előadót a Spotify-on...", color = Color.Gray) },
+            placeholder = { Text("Keress dalt vagy előadót...", color = Color.Gray) },
             leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
             singleLine = true,
             colors = TextFieldDefaults.colors(focusedContainerColor = Color(0xFF1E2822), unfocusedContainerColor = Color(0xFF1E2822), focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
@@ -543,9 +552,9 @@ fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
             Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF1DB954).copy(alpha=0.2f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text("🎧", fontSize = 10.sp)
+                Text("🎵", fontSize = 10.sp)
                 Spacer(Modifier.width(4.dp))
-                Text("Spotify Engine", fontSize = 10.sp, color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
+                Text("Teljes Dal", fontSize = 10.sp, color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
             }
         }
         if (onSave != null) { IconButton(onClick = onSave) { Text("❤️", fontSize = 22.sp) } }
@@ -645,7 +654,7 @@ fun FullPlayerScreen(song: LiveSong, exoPlayer: ExoPlayer, lyrics: String, onDis
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onDismiss) { Text("▼", color = Color.White, fontSize = 24.sp) }
-            Text("SPOTIFY TRACK", color = Color.Gray, fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+            Text("TELJES DAL LEJÁTSZÁS", color = Color.Gray, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
             IconButton(onClick = { }) { Text("⋮", color = Color.White, fontSize = 24.sp) }
         }
         Spacer(Modifier.height(16.dp))
