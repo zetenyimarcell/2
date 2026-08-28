@@ -527,7 +527,7 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
             AlertDialog(
                 onDismissRequest = { showRationale = false },
                 title = { Text("Mikrofon engedély szükséges") },
-                text = { Text("A Nova Zene a mikrofont csak arra használja, hogy 6 másodsegment rögzítsen a körülötted szóló zenéből, és azonosítsa azt. Semmit nem ment el vagy küld tovább máshova.") },
+                text = { Text("A Nova Zene a mikrofont csak arra használja, hogy 6 másodpercet rögzítsen a körülötted szóló zenéből, és azonosítsa azt. Semmit nem ment el vagy küld tovább máshova.") },
                 confirmButton = {
                     TextButton(onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }) {
                         Text("Engedélyezem")
@@ -692,7 +692,7 @@ class AudioRecorder(private val context: Context) {
     }
 }
 
-// ========== AUDD ZENEFELISMERŐ API (Javítva a levágott kód) ==========
+// ========== AUDD ZENEFELISMERŐ API ==========
 object RecognitionApi {
     private val client = OkHttpClient()
     private const val API_TOKEN = "3c3ef271303bbfad486351e6b66e49dd"
@@ -703,50 +703,64 @@ object RecognitionApi {
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("api_token", API_TOKEN)
                 .addFormDataPart("return", "spotify")
-                .addFormDataPart("file", audioFile.name, audioFile.asRequestBody("audio/mp4".toMediaTypeOrNull()))
+                .addFormDataPart("file", audioFile.name, audioFile.asRequestBody("audio/m4a".toMediaTypeOrNull()))
                 .build()
 
-            val request = Request.Builder().url("https://api.audd.io/").post(requestBody).build()
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: return@withContext null
-                val json = JSONObject(body)
-                if (json.optString("status") != "success") return@withContext null
-                val result = json.optJSONObject("result") ?: return@withContext null
-                
-                // Hiányzó rész pótolva!
-                return@withContext RecognitionResult(
-                    title = result.optString("title", "Ismeretlen"),
-                    artist = result.optString("artist", "Ismeretlen Előadó"),
-                    spotifyUrl = result.optJSONObject("spotify")?.optString("preview_url", "")
-                )
+            val request = Request.Builder()
+                .url("https://api.audd.io/")
+                .post(requestBody)
+                .build()
+
+            val response = client.newCall(request).execute()
+            val responseData = response.body?.string() ?: return@withContext null
+            val json = JSONObject(responseData)
+
+            if (json.optString("status") == "success" && !json.isNull("result")) {
+                val resultJson = json.getJSONObject("result")
+                val title = resultJson.optString("title", "Ismeretlen szám")
+                val artist = resultJson.optString("artist", "Ismeretlen előadó")
+
+                val spotifyUrl = if (resultJson.has("spotify") && !resultJson.isNull("spotify")) {
+                    val spotifyJson = resultJson.getJSONObject("spotify")
+                    spotifyJson.optString("preview_url", null)
+                } else null
+
+                RecognitionResult(title = title, artist = artist, spotifyUrl = spotifyUrl)
+            } else {
+                null
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            return@withContext null
+            null
         }
     }
 }
 
-// ========== FIRESTORE ADATBÁZIS KEZELŐ (Gyűjtemény) ==========
+// ========== FIRESTORE GYŰJTEMÉNY KEZELŐ ==========
 class CollectionRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
-    private val userId get() = auth.currentUser?.uid ?: "guest"
 
     suspend fun add(song: LiveSong) {
-        try {
-            db.collection("users").document(userId).collection("songs").document(song.id).set(song).await()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        val userId = auth.currentUser?.uid ?: "guest_user"
+        val songMap = mapOf(
+            "id" to song.id,
+            "title" to song.title,
+            "artist" to song.artist,
+            "coverUrl" to song.coverUrl,
+            "streamUrl" to song.streamUrl,
+            "timestamp" to System.currentTimeMillis()
+        )
+        db.collection("users").document(userId).collection("favorites").document(song.id).set(songMap).await()
     }
 
     suspend fun getAll(): List<LiveSong> = withContext(Dispatchers.IO) {
-        try {
-            val snapshot = db.collection("users").document(userId).collection("songs").get().await()
-            snapshot.documents.map { doc ->
+        val userId = auth.currentUser?.uid ?: "guest_user"
+        return@withContext try {
+            val snapshot = db.collection("users").document(userId).collection("favorites").get().await()
+            snapshot.documents.mapNotNull { doc ->
                 LiveSong(
-                    id = doc.getString("id") ?: "",
+                    id = doc.getString("id") ?: doc.id,
                     title = doc.getString("title") ?: "",
                     artist = doc.getString("artist") ?: "",
                     coverUrl = doc.getString("coverUrl") ?: "",
@@ -759,61 +773,72 @@ class CollectionRepository {
     }
 }
 
-// ========== YOUTUBE / PIPED API KERESŐMOTOR ==========
+// ========== ONLINE ZENEKERESŐ LOGIKA (PIPED / YOUTUBE) ==========
 suspend fun searchMusicFromInternetFull(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    val results = mutableListOf<LiveSong>()
-    runCatching {
-        val encoded = URLEncoder.encode(query, "UTF-8")
-        val url = URL("https://pipedapi.kavin.rocks/search?q=$encoded&filter=music_songs")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "GET"
-        conn.connectTimeout = 5000
-        conn.readTimeout = 5000
-        
-        if (conn.responseCode == 200) {
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(text)
-            val array = json.getJSONArray("items")
-            for (i in 0 until array.length()) {
-                val item = array.getJSONObject(i)
-                val videoUrl = item.optString("url", "")
-                val videoId = videoUrl.removePrefix("/watch?v=")
-                
+    try {
+        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        val url = URL("https://pipedapi.kavin.rocks/search?q=$encodedQuery&filter=music_songs")
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
+
+        if (connection.responseCode == 200) {
+            val response = connection.inputStream.bufferedReader().readText()
+            val jsonObject = JSONObject(response)
+            val items = jsonObject.getJSONArray("items")
+            val resultList = mutableListOf<LiveSong>()
+
+            for (i in 0 until items.length().coerceAtMost(20)) {
+                val item = items.getJSONObject(i)
+                val urlPath = item.optString("url", "")
+                val videoId = urlPath.removePrefix("/watch?v=")
+                val title = item.optString("title", "Ismeretlen dal")
+                val uploaderName = item.optString("uploaderName", "Ismeretlen előadó")
+                val thumbnail = item.optString("thumbnail", "")
+
                 if (videoId.isNotEmpty()) {
-                    results.add(
+                    resultList.add(
                         LiveSong(
                             id = videoId,
-                            title = item.optString("title", "Ismeretlen szám"),
-                            artist = item.optString("uploaderName", "Ismeretlen előadó"),
-                            coverUrl = item.optString("thumbnail", ""),
+                            title = title,
+                            artist = uploaderName,
+                            coverUrl = thumbnail,
                             streamUrl = "yt:$videoId"
                         )
                     )
                 }
             }
+            resultList
+        } else {
+            emptyList()
         }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        emptyList()
     }
-    return@withContext results
 }
 
-// ========== YOUTUBE STREAM FELOLDÓ (Lejátszáshoz) ==========
+// ========== YOUTUBE AUDIO STREAM LEKÉRŐ ==========
 suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
-    runCatching {
+    try {
         val url = URL("https://pipedapi.kavin.rocks/streams/$videoId")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "GET"
-        conn.connectTimeout = 5000
-        conn.readTimeout = 5000
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
 
-        if (conn.responseCode == 200) {
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(text)
-            val audioStreams = json.getJSONArray("audioStreams")
-            
+        if (connection.responseCode == 200) {
+            val response = connection.inputStream.bufferedReader().readText()
+            val jsonObject = JSONObject(response)
+            val audioStreams = jsonObject.getJSONArray("audioStreams")
             if (audioStreams.length() > 0) {
-                return@runCatching audioStreams.getJSONObject(0).optString("url")
+                return@withContext audioStreams.getJSONObject(0).getString("url")
             }
         }
         null
-    }.getOrNull()
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
 }
