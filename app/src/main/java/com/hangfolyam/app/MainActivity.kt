@@ -1,5 +1,6 @@
 package com.hangfolyam.app
 
+import androidx.compose.ui.draw.scale
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
