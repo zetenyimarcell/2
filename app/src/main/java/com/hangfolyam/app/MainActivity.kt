@@ -70,6 +70,10 @@ import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
+// ========== CONSTANTS & RAPIDAPI CONFIG ==========
+private const val RAPIDAPI_KEY = "2d254d6e90msh93b4b9705fc3e35p1af4c0jsna208abe5a1fc"
+private const val RAPIDAPI_HOST = "spotify-downloader11.p.rapidapi.com"
+
 // ========== ADATMODELLEK ==========
 data class LiveSong(
     val id: String = "", 
@@ -77,7 +81,7 @@ data class LiveSong(
     val artist: String = "", 
     val coverUrl: String = "", 
     val streamUrl: String = "",
-    val source: String = "YouTube"
+    val source: String = "Spotify"
 )
 
 data class UpdateInfo(
@@ -110,13 +114,10 @@ class CollectionRepository {
     }
 }
 
-// Alternatív, stabilabb dalszöveg lekérdezési kísérlet (ha nincs, nem omlik össze)
 suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
     try {
         val client = OkHttpClient()
-        val formattedArtist = artist.trim()
-        val formattedTitle = title.trim()
-        val url = "https://api.lyrics.ovh/v1/${URLEncoder.encode(formattedArtist, "UTF-8")}/${URLEncoder.encode(formattedTitle, "UTF-8")}"
+        val url = "https://api.lyrics.ovh/v1/${URLEncoder.encode(artist.trim(), "UTF-8")}/${URLEncoder.encode(title.trim(), "UTF-8")}"
         val request = Request.Builder().url(url).build()
         val response = client.newCall(request).execute()
         val body = response.body?.string()
@@ -135,8 +136,8 @@ suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.
         title = "Ismert Dal",
         artist = "Előadó",
         coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150",
-        streamUrl = "yt:dQw4w9WgXcQ",
-        source = "YouTube"
+        streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+        source = "Recognized"
     )
 }
 
@@ -337,7 +338,7 @@ fun HomeScreen(auth: FirebaseAuth) {
                 lyricsText = fetchLyrics(song.artist, song.title) ?: "Dalszöveg nem található."
             }
 
-            val playUrl = if (song.streamUrl.startsWith("yt:")) getYouTubeAudioStream(song.streamUrl.removePrefix("yt:")) ?: "" else song.streamUrl
+            val playUrl = if (song.streamUrl.isNotEmpty()) song.streamUrl else fetchAudioStreamRapidAPI(song.id) ?: ""
             if (playUrl.isNotEmpty()) {
                 exoPlayer.setMediaItem(MediaItem.fromUri(playUrl))
                 exoPlayer.prepare()
@@ -386,6 +387,126 @@ fun HomeScreen(auth: FirebaseAuth) {
     }
 }
 
+// ========== RAPIDAPI INTEGRÁCIÓ ==========
+suspend fun searchRapidAPI(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
+    val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
+    val encodedQuery = URLEncoder.encode(query, "UTF-8")
+    val url = "https://$RAPIDAPI_HOST/search.php?q=$encodedQuery"
+
+    val request = Request.Builder()
+        .url(url)
+        .addHeader("X-RapidAPI-Key", RAPIDAPI_KEY)
+        .addHeader("X-RapidAPI-Host", RAPIDAPI_HOST)
+        .build()
+
+    try {
+        val response = client.newCall(request).execute()
+        if (response.isSuccessful) {
+            val body = response.body?.string() ?: return@withContext emptyList()
+            val json = JSONObject(body)
+            val resultsArray = json.optJSONArray("tracks") ?: json.optJSONArray("data") ?: return@withContext emptyList()
+
+            val songsList = mutableListOf<LiveSong>()
+            for (i in 0 until resultsArray.length()) {
+                val item = resultsArray.getJSONObject(i)
+                songsList.add(
+                    LiveSong(
+                        id = item.optString("id", item.optString("url")),
+                        title = item.optString("title", item.optString("name", "Ismeretlen dal")),
+                        artist = item.optString("artist", item.optString("artists", "Ismeretlen előadó")),
+                        coverUrl = item.optString("cover", item.optString("image", "")),
+                        streamUrl = item.optString("download_url", item.optString("link", "")),
+                        source = "Spotify Premium"
+                    )
+                )
+            }
+            return@withContext songsList
+        }
+    } catch (_: Exception) {}
+    return@withContext emptyList()
+}
+
+suspend fun fetchAudioStreamRapidAPI(trackIdOrUrl: String): String? = withContext(Dispatchers.IO) {
+    val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).build()
+    val encodedId = URLEncoder.encode(trackIdOrUrl, "UTF-8")
+    val url = "https://$RAPIDAPI_HOST/download.php?id=$encodedId"
+
+    val request = Request.Builder()
+        .url(url)
+        .addHeader("X-RapidAPI-Key", RAPIDAPI_KEY)
+        .addHeader("X-RapidAPI-Host", RAPIDAPI_HOST)
+        .build()
+
+    try {
+        val response = client.newCall(request).execute()
+        if (response.isSuccessful) {
+            val body = response.body?.string() ?: return@withContext null
+            val json = JSONObject(body)
+            return@withContext json.optString("link", json.optString("download_url", null))
+        }
+    } catch (_: Exception) {}
+    return@withContext null
+}
+
+@Composable
+fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Spacer(modifier = Modifier.height(24.dp))
+        Text("Mit hallgatnál?", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedTextField(
+            value = query, onValueChange = { 
+                query = it
+                if (it.length >= 2) {
+                    isLoading = true
+                    scope.launch { results = searchRapidAPI(it); isLoading = false }
+                } else results = emptyList()
+            },
+            modifier = Modifier.fillMaxWidth().shadow(10.dp, RoundedCornerShape(30.dp)).clip(RoundedCornerShape(30.dp)),
+            placeholder = { Text("Előadó vagy dal címe...", color = Color.Gray) },
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
+            singleLine = true,
+            colors = TextFieldDefaults.colors(focusedContainerColor = Color(0xFF1E1E35), unfocusedContainerColor = Color(0xFF1E1E35), focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                items(results) { song -> SongRow(song, { onPlay(song) }, { onSave(song) }) }
+            }
+        }
+    }
+}
+
+@Composable
+fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF161625)).clickable { onClick() }.padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AsyncImage(model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150" }, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)))
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFF1DB954).copy(alpha=0.2f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                Text("🎵", fontSize = 10.sp)
+                Spacer(Modifier.width(4.dp))
+                Text("RapidAPI HQ", fontSize = 10.sp, color = Color(0xFF1DB954), fontWeight = FontWeight.Bold)
+            }
+        }
+        if (onSave != null) { IconButton(onClick = onSave) { Text("❤️", fontSize = 22.sp) } }
+    }
+}
+
 @Composable
 fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
     var savedSongs by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
@@ -424,160 +545,6 @@ fun ProfileScreen(auth: FirebaseAuth) {
         Button(onClick = { auth.signOut() }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) {
             Text("Kijelentkezés", color = Color.White)
         }
-    }
-}
-
-// ========== AUTOMATIKUSAN VÁLTÓ TUBESZERVEREK (FALLBACK INSTANCES) ==========
-val PIPED_INSTANCES = listOf(
-    "https://api.piped.privacydev.net",
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.tokhmi.xyz",
-    "https://pipedapi.moomoo.me",
-    "https://pipedapi.adminforge.de",
-    "https://pipedapi.astro.al"
-)
-
-suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    val client = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .build()
-    val encodedQuery = URLEncoder.encode(query, "UTF-8")
-
-    for (baseUrl in PIPED_INSTANCES) {
-        try {
-            val url = "$baseUrl/search?q=$encodedQuery&filter=all"
-            val request = Request.Builder().url(url).build()
-            val response = client.newCall(request).execute()
-            
-            if (!response.isSuccessful) continue
-
-            val body = response.body?.string() ?: continue
-            val json = JSONObject(body)
-            val results = json.optJSONArray("items") ?: continue
-            val ytSongs = mutableListOf<LiveSong>()
-
-            for (i in 0 until results.length()) {
-                val item = results.getJSONObject(i)
-                if (item.optString("type") == "stream") {
-                    val videoId = item.optString("url").removePrefix("/watch?v=")
-                    ytSongs.add(
-                        LiveSong(
-                            id = videoId,
-                            title = item.optString("title", "Ismeretlen dal"),
-                            artist = item.optString("uploaderName", "YouTube"),
-                            coverUrl = item.optString("thumbnail", ""),
-                            streamUrl = "yt:$videoId",
-                            source = "YouTube"
-                        )
-                    )
-                }
-                if (ytSongs.size >= 25) break
-            }
-
-            if (ytSongs.isNotEmpty()) {
-                return@withContext ytSongs
-            }
-        } catch (_: Exception) {
-            continue
-        }
-    }
-
-    return@withContext emptyList()
-}
-
-suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
-    val client = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .build()
-
-    for (baseUrl in PIPED_INSTANCES) {
-        try {
-            val url = "$baseUrl/streams/$videoId"
-            val request = Request.Builder().url(url).build()
-            val response = client.newCall(request).execute()
-
-            if (!response.isSuccessful) continue
-
-            val body = response.body?.string() ?: continue
-            val json = JSONObject(body)
-
-            if (json.has("audioStreams")) {
-                val audioStreams = json.getJSONArray("audioStreams")
-                if (audioStreams.length() > 0) {
-                    for (i in 0 until audioStreams.length()) {
-                        val stream = audioStreams.getJSONObject(i)
-                        val streamUrl = stream.optString("url")
-                        if (streamUrl.isNotEmpty()) {
-                            return@withContext streamUrl
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            continue
-        }
-    }
-    return@withContext null
-}
-
-@Composable
-fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
-    val scope = rememberCoroutineScope()
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<LiveSong>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
-
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("Mit hallgatnál?", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-        Spacer(modifier = Modifier.height(16.dp))
-        OutlinedTextField(
-            value = query, onValueChange = { 
-                query = it
-                if (it.length >= 2) {
-                    isLoading = true
-                    scope.launch { results = searchMultiEngine(it); isLoading = false }
-                } else results = emptyList()
-            },
-            modifier = Modifier.fillMaxWidth().shadow(10.dp, RoundedCornerShape(30.dp)).clip(RoundedCornerShape(30.dp)),
-            placeholder = { Text("Előadó vagy dal címe...", color = Color.Gray) },
-            leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
-            singleLine = true,
-            colors = TextFieldDefaults.colors(focusedContainerColor = Color(0xFF1E1E35), unfocusedContainerColor = Color(0xFF1E1E35), focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent)
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-
-        if (isLoading) {
-            Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                items(results) { song -> SongRow(song, { onPlay(song) }, { onSave(song) }) }
-            }
-        }
-    }
-}
-
-@Composable
-fun SongRow(song: LiveSong, onClick: () -> Unit, onSave: (() -> Unit)?) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF161625)).clickable { onClick() }.padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        AsyncImage(model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150" }, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)))
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(song.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(song.artist, color = Color.LightGray, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.DarkGray.copy(alpha=0.5f)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                Text("📺", fontSize = 10.sp)
-                Spacer(Modifier.width(4.dp))
-                Text("YouTube (Teljes)", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Medium)
-            }
-        }
-        if (onSave != null) { IconButton(onClick = onSave) { Text("❤️", fontSize = 22.sp) } }
     }
 }
 
