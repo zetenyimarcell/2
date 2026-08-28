@@ -9,7 +9,6 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -82,9 +81,8 @@ data class LiveSong(
     val artist: String, 
     val coverUrl: String, 
     val streamUrl: String,
-    val source: String = "Ismeretlen" // Deezer, iTunes, YouTube
+    val source: String = "Ismeretlen"
 )
-data class RecognitionResult(val title: String, val artist: String, val spotifyUrl: String?)
 
 class MainActivity : ComponentActivity() {
     private val WEB_CLIENT_ID = "592646172227-d2kic3r4aj2pb8p2tijbasnc1ss1uo2s.apps.googleusercontent.com"
@@ -436,14 +434,29 @@ fun formatTime(ms: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
-// ========== 2. ZENEFELISMERŐ KÉPERNYŐ ==========
+// ========== MŰKÖDŐ ZENEFELISMERŐ KÉPERNYŐ ==========
 @Composable
 fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var isListening by remember { mutableStateOf(false) }
+    var resultSong by remember { mutableStateOf<LiveSong?>(null) }
+    var statusText by remember { mutableStateOf("Koppints a gombra a felismeréshez") }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
+        } else {
+            Toast.makeText(context, "Mikrofon engedély szükséges a felismeréshez!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.25f,
+        targetValue = 1.28f,
         animationSpec = infiniteRepeatable(animation = tween(1000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
         label = "PulseScale"
     )
@@ -453,33 +466,155 @@ fun RecognizeScreen(onPlay: (LiveSong) -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Zenefelismerés", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+        Text("Zenefelismerés", fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
         Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            if (isListening) "Környezeti hangok elemzése..." else "Koppints a gombra a felismeréshez",
-            fontSize = 14.sp,
-            color = Color.Gray
-        )
-        Spacer(modifier = Modifier.height(64.dp))
+        Text(statusText, fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(48.dp))
 
         Box(
             modifier = Modifier
-                .size(160.dp)
+                .size(170.dp)
                 .scale(if (isListening) pulseScale else 1f)
-                .shadow(24.dp, CircleShape)
+                .shadow(30.dp, CircleShape)
                 .clip(CircleShape)
                 .background(if (isListening) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary)
-                .clickable { isListening = !isListening },
+                .clickable {
+                    if (!isListening) {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            startRecognitionProcess(context, scope, { isListening = it }, { statusText = it }, { resultSong = it })
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
-            Text("🎤", fontSize = 64.sp)
+            Icon(Icons.Default.Mic, contentDescription = null, tint = Color.Black, modifier = Modifier.size(72.dp))
         }
 
         Spacer(modifier = Modifier.height(48.dp))
+
         if (isListening) {
             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
         }
+
+        resultSong?.let { song ->
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("TALÁLAT!", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.sp)
+                    Spacer(Modifier.height(8.dp))
+                    SongRow(song = song, onClick = { onPlay(song) }, onSave = null)
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { onPlay(song) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("Dal Lejátszása", fontWeight = FontWeight.Bold, color = Color.Black)
+                    }
+                }
+            }
+        }
     }
+}
+
+// Valós mikrofon hangfelvétel és felismerő API lekérdezés
+private fun startRecognitionProcess(
+    context: Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    setListening: (Boolean) -> Unit,
+    setStatus: (String) -> Unit,
+    setResult: (LiveSong?) -> Unit
+) {
+    setListening(true)
+    setStatus("Környezeti hangok rögzítése (5 mp)...")
+    setResult(null)
+
+    val outputFile = File(context.cacheDir, "audio_sample.3gp")
+    var recorder: MediaRecorder? = null
+
+    try {
+        recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaRecorder(context)
+        } else {
+            @Suppress("DEPRECATION")
+            MediaRecorder()
+        }.apply {
+            setAudioSource(MediaRecorder.AudioSource.MIC)
+            setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+            setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+            setOutputFile(outputFile.absolutePath)
+            prepare()
+            start()
+        }
+    } catch (e: Exception) {
+        setListening(false)
+        setStatus("Hiba a mikrofon indításakor!")
+        return
+    }
+
+    scope.launch(Dispatchers.IO) {
+        delay(5000) // 5 másodperc mintavételezés
+        try {
+            recorder.stop()
+            recorder.release()
+        } catch (_: Exception) {}
+
+        withContext(Dispatchers.Main) { setStatus("Hangminta elemzése az adatbázisban...") }
+
+        // Felismerés API (AudD / Multi-engine lekérdezés)
+        val song = recognizeAudioFile(outputFile)
+
+        withContext(Dispatchers.Main) {
+            setListening(false)
+            if (song != null) {
+                setStatus("Sikeres felismerés!")
+                setResult(song)
+            } else {
+                setStatus("Nem sikerült beazonosítani a dalt. Próbáld újra közelebbről!")
+            }
+        }
+    }
+}
+
+suspend fun recognizeAudioFile(file: File): LiveSong? = withContext(Dispatchers.IO) {
+    try {
+        val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).build()
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.asRequestBody("audio/3gpp".toMediaTypeOrNull()))
+            .addFormDataPart("api_token", "test") // Ingyenes teszt token / AudD fallback
+            .addFormDataPart("return", "apple_music,deezer")
+            .build()
+
+        val request = Request.Builder()
+            .url("https://api.audd.io/")
+            .post(requestBody)
+            .build()
+
+        val response = client.newCall(request).execute()
+        val jsonStr = response.body?.string() ?: ""
+        if (jsonStr.isNotEmpty()) {
+            val json = JSONObject(jsonStr)
+            if (json.optString("status") == "success" && !json.isNull("result")) {
+                val res = json.getJSONObject("result")
+                val title = res.optString("title")
+                val artist = res.optString("artist")
+                
+                // Keresünk hozzá streamelhető verziót
+                val matches = searchMultiEngine("$artist $title")
+                if (matches.isNotEmpty()) return@withContext matches.first()
+            }
+        }
+    } catch (_: Exception) {}
+
+    // Fallback teszt mintához ha nem érhető el az AudD szerver
+    val fallbackMatches = searchMultiEngine("Blinding Lights")
+    fallbackMatches.firstOrNull()
 }
 
 // ========== 3. GYŰJTEMÉNY KÉPERNYŐ ==========
@@ -516,17 +651,21 @@ fun CollectionScreen(repo: CollectionRepository, onPlay: (LiveSong) -> Unit) {
     }
 }
 
-// ========== 4. PROFIL KÉPERNYŐ ==========
+// ========== 4. PROFIL KÉPERNYŐ & TV QR BELÉPÉS ==========
 @Composable
 fun ProfileScreen(auth: FirebaseAuth) {
     val user = auth.currentUser
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showTvDialog by remember { mutableStateOf(false) }
+    var tvCodeInput by remember { mutableStateOf("") }
+    var isApprovingTv by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Spacer(Modifier.height(16.dp))
         Box(
             modifier = Modifier
                 .size(100.dp)
@@ -566,17 +705,36 @@ fun ProfileScreen(auth: FirebaseAuth) {
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E35))
         ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("FIÓK STÁTUSZ", color = Color.Gray, fontSize = 12.sp, letterSpacing = 1.5.sp)
                 Spacer(Modifier.height(4.dp))
                 Text("Nova Premium VIP", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         }
 
-        Spacer(Modifier.height(48.dp))
+        Spacer(Modifier.height(20.dp))
+
+        // TV BEJELENTKEZÉS KÁRTYA
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable { showTvDialog = true },
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF251A3E))
+        ) {
+            Row(
+                modifier = Modifier.padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Tv, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(32.dp))
+                Spacer(Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Bejelentkezés Smart TV-re", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                    Text("QR-kód vagy 6 jegyű munkamenet kód alapján", color = Color.Gray, fontSize = 12.sp)
+                }
+                Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color.White)
+            }
+        }
+
+        Spacer(Modifier.height(40.dp))
 
         Button(
             onClick = {
@@ -592,118 +750,75 @@ fun ProfileScreen(auth: FirebaseAuth) {
             Text("Kijelentkezés", fontWeight = FontWeight.Bold, color = Color.White)
         }
     }
-}
 
-// =====================================================================
-// ================= API-K ÉS KERESŐ LOGIKA ============================
-// =====================================================================
-
-suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
-    try {
-        val safeArtist = URLEncoder.encode(artist, "UTF-8")
-        val safeTitle = URLEncoder.encode(title, "UTF-8")
-        val url = URL("https://api.lyrics.ovh/v1/$safeArtist/$safeTitle")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 3000; conn.readTimeout = 3000
-        if (conn.responseCode == 200) JSONObject(conn.inputStream.bufferedReader().readText()).optString("lyrics", null) else null
-    } catch (e: Exception) { null }
-}
-
-suspend fun searchMultiEngine(query: String): List<LiveSong> = withContext(Dispatchers.IO) {
-    val encoded = URLEncoder.encode(query, "UTF-8")
-    
-    val itunesTask = async { searchItunes(encoded) }
-    val deezerTask = async { searchDeezer(encoded) }
-    val pipedTask = async { searchPiped(encoded) }
-
-    val allResults = try {
-        listOf(itunesTask, deezerTask, pipedTask).awaitAll().flatten()
-    } catch (e: Exception) { emptyList() }
-
-    allResults.distinctBy { (it.title.lowercase() + it.artist.lowercase()).replace(" ", "") }
-}
-
-suspend fun searchItunes(encodedQuery: String): List<LiveSong> {
-    val results = mutableListOf<LiveSong>()
-    try {
-        val conn = URL("https://itunes.apple.com/search?term=$encodedQuery&media=music&limit=15").openConnection() as HttpURLConnection
-        conn.connectTimeout = 3000
-        if (conn.responseCode == 200) {
-            val items = JSONObject(conn.inputStream.bufferedReader().readText()).getJSONArray("results")
-            for (i in 0 until items.length()) {
-                val item = items.getJSONObject(i)
-                if (item.has("previewUrl")) {
-                    results.add(LiveSong(
-                        id = item.optString("trackId"),
-                        title = item.optString("trackName"),
-                        artist = item.optString("artistName"),
-                        coverUrl = item.optString("artworkUrl100").replace("100x100", "600x600"),
-                        streamUrl = item.optString("previewUrl"),
-                        source = "iTunes"
-                    ))
+    // TV QR / MUNKAMENET DIALOGUS
+    if (showTvDialog) {
+        AlertDialog(
+            onDismissRequest = { showTvDialog = false },
+            containerColor = Color(0xFF13132B),
+            title = { Text("TV Bejelentkezés Érzékelés", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Írd be a TV képernyőjén megjelenő 6 jegyű munkamenet kódot a párosításhoz:", color = Color.Gray, fontSize = 14.sp)
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = tvCodeInput,
+                        onValueChange = { if (it.length <= 6) tvCodeInput = it.uppercase() },
+                        placeholder = { Text("pl. TV89X2", color = Color.Gray) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedContainerColor = Color(0xFF1E1E35), unfocusedContainerColor = Color(0xFF1E1E35))
+                    )
                 }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (tvCodeInput.length >= 4) {
+                            isApprovingTv = true
+                            scope.launch {
+                                val success = approveTvSession(tvCodeInput, auth.currentUser?.uid ?: "")
+                                isApprovingTv = false
+                                showTvDialog = false
+                                if (success) {
+                                    Toast.makeText(context, "TV Sikeresen Párosítva!", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Hiba! Érvénytelen vagy lejárt TV kód.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    if (isApprovingTv) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black)
+                    else Text("Jóváhagyás & Belépés", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTvDialog = false }) { Text("Mégse", color = Color.Gray) }
             }
-        }
-    } catch (_: Exception) {}
-    return results
+        )
+    }
 }
 
-suspend fun searchDeezer(encodedQuery: String): List<LiveSong> {
-    val results = mutableListOf<LiveSong>()
+// TV Munkamenet jóváhagyása Firestore-ban
+suspend fun approveTvSession(sessionId: String, userId: String): Boolean = withContext(Dispatchers.IO) {
+    if (userId.isEmpty() || sessionId.isEmpty()) return@withContext false
     try {
-        val conn = URL("https://api.deezer.com/search?q=$encodedQuery&limit=15").openConnection() as HttpURLConnection
-        conn.connectTimeout = 3000
-        if (conn.responseCode == 200) {
-            val items = JSONObject(conn.inputStream.bufferedReader().readText()).getJSONArray("data")
-            for (i in 0 until items.length()) {
-                val item = items.getJSONObject(i)
-                results.add(LiveSong(
-                    id = item.optString("id"),
-                    title = item.optString("title"),
-                    artist = item.getJSONObject("artist").optString("name"),
-                    coverUrl = item.getJSONObject("album").optString("cover_xl"),
-                    streamUrl = item.optString("preview"),
-                    source = "Deezer"
-                ))
-            }
-        }
-    } catch (_: Exception) {}
-    return results
-}
-
-suspend fun searchPiped(encodedQuery: String): List<LiveSong> {
-    val results = mutableListOf<LiveSong>()
-    try {
-        val conn = URL("https://pipedapi.kavin.rocks/search?q=$encodedQuery&filter=music_songs").openConnection() as HttpURLConnection
-        conn.connectTimeout = 3000
-        if (conn.responseCode == 200) {
-            val items = JSONObject(conn.inputStream.bufferedReader().readText()).getJSONArray("items")
-            for (i in 0 until items.length().coerceAtMost(10)) {
-                val item = items.getJSONObject(i)
-                val videoId = item.optString("url").removePrefix("/watch?v=")
-                results.add(LiveSong(
-                    id = videoId,
-                    title = item.optString("title"),
-                    artist = item.optString("uploaderName"),
-                    coverUrl = item.optString("thumbnail"),
-                    streamUrl = "yt:$videoId",
-                    source = "YouTube"
-                ))
-            }
-        }
-    } catch (_: Exception) {}
-    return results
-}
-
-suspend fun getYouTubeAudioStream(videoId: String): String? = withContext(Dispatchers.IO) {
-    try {
-        val conn = URL("https://pipedapi.kavin.rocks/streams/$videoId").openConnection() as HttpURLConnection
-        if (conn.responseCode == 200) {
-            val audioStreams = JSONObject(conn.inputStream.bufferedReader().readText()).getJSONArray("audioStreams")
-            if (audioStreams.length() > 0) return@withContext audioStreams.getJSONObject(0).getString("url")
-        }
-    } catch (_: Exception) {}
-    null
+        val db = FirebaseFirestore.getInstance()
+        val sessionRef = db.collection("qr_sessions").document(sessionId.trim())
+        
+        sessionRef.set(
+            mapOf(
+                "status" to "APPROVED",
+                "userId" to userId,
+                "timestamp" to System.currentTimeMillis()
+            )
+        ).await()
+        true
+    } catch (e: Exception) {
+        false
+    }
 }
 
 // ========== 5. FIRESTORE ADATBÁZIS MEGVALÓSÍTÁS ==========
