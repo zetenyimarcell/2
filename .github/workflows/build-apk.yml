@@ -15,6 +15,11 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Gradle beallitasa
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.6'
+
     - name: Allando keystore visszaallitasa a Secret-bol
       run: |
         echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore
