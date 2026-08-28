@@ -17,7 +17,7 @@ import java.io.File
  */
 object RecognitionApi {
     private val client = OkHttpClient()
-    private const val API_TOKEN = "IDE_A_SAJAT_AUDD_API_TOKEN"
+    private const val API_TOKEN = "3c3ef271303bbfad486351e6b66e49dd"
 
     suspend fun recognize(audioFile: File): RecognitionResult? = withContext(Dispatchers.IO) {
         val requestBody = MultipartBody.Builder()
