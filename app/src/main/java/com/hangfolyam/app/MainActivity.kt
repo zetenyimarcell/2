@@ -396,7 +396,7 @@ fun SearchScreen(onPlay: (LiveSong) -> Unit, onSave: (LiveSong) -> Unit) {
     }
 }
 
-// ========== FÜL 2: ZENEFELISMERŐ ==========
+// ========== FÜL 2: ZENEFELISMERŐ (mikrofon-engedélykérő ablakkal) ==========
 @Composable
 fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
     val context = LocalContext.current
@@ -406,10 +406,43 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
     var resultSong by remember { mutableStateOf<LiveSong?>(null) }
     var accuracyScore by remember { mutableStateOf<Int?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
+    var showRationale by remember { mutableStateOf(false) }
 
     val recorder = remember { AudioRecorder(context) }
+
+    fun startRecognition() {
+        resultSong = null
+        errorText = null
+        isRecording = true
+        scope.launch {
+            val file = recorder.start()
+            delay(6000)
+            recorder.stop()
+            isRecording = false
+            isProcessing = true
+
+            val recognized = runCatching { RecognitionApi.recognize(file) }.getOrNull()
+            isProcessing = false
+
+            if (recognized != null) {
+                resultSong = LiveSong(
+                    id = "rec_${System.currentTimeMillis()}",
+                    title = recognized.title,
+                    artist = recognized.artist,
+                    coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300",
+                    streamUrl = recognized.spotifyUrl ?: ""
+                )
+                accuracyScore = (85..99).random()
+            } else {
+                errorText = "Nem sikerült azonosítani. Próbáld hangosabban!"
+            }
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) errorText = "Mikrofon engedély szükséges a felismeréshez."
+        showRationale = false
+        if (granted) startRecognition()
+        else errorText = "Mikrofon engedély nélkül a felismerés nem működik."
     }
 
     Column(
@@ -424,36 +457,12 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
 
         Button(
             onClick = {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                if (!granted) {
+                    showRationale = true
                     return@Button
                 }
-                resultSong = null
-                errorText = null
-                isRecording = true
-                scope.launch {
-                    val file = recorder.start()
-                    delay(6000)
-                    recorder.stop()
-                    isRecording = false
-                    isProcessing = true
-
-                    val recognized = runCatching { RecognitionApi.recognize(file) }.getOrNull()
-                    isProcessing = false
-
-                    if (recognized != null) {
-                        resultSong = LiveSong(
-                            id = "rec_${System.currentTimeMillis()}",
-                            title = recognized.title,
-                            artist = recognized.artist,
-                            coverUrl = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300",
-                            streamUrl = recognized.spotifyUrl ?: ""
-                        )
-                        accuracyScore = (85..99).random()
-                    } else {
-                        errorText = "Nem sikerült azonosítani. Próbáld hangosabban!"
-                    }
-                }
+                startRecognition()
             },
             modifier = Modifier.size(140.dp),
             shape = CircleShape,
@@ -494,6 +503,22 @@ fun RecognizeScreen(onPlayRecognized: (LiveSong) -> Unit) {
                     }
                 }
             }
+        }
+
+        if (showRationale) {
+            AlertDialog(
+                onDismissRequest = { showRationale = false },
+                title = { Text("Mikrofon engedély szükséges") },
+                text = { Text("A Nova Zene a mikrofont csak arra használja, hogy 6 másodpercet rögzítsen a körülötted szóló zenéből, és azonosítsa azt. Semmit nem ment el vagy küld tovább máshova.") },
+                confirmButton = {
+                    TextButton(onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }) {
+                        Text("Engedélyezem")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRationale = false }) { Text("Mégse") }
+                }
+            )
         }
     }
 }
