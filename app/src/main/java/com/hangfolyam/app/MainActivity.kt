@@ -109,12 +109,13 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
         }
     }
 
-    // Fő elrendezés
+    // Fő elrendezés (görgethetővé téve)
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // "BottomSheet" drag handle vonal felül
@@ -125,38 +126,38 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
                 .clip(RoundedCornerShape(2.dp))
                 .background(Color.DarkGray)
         )
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Borítókép (Coil)
+        // Borítókép
         AsyncImage(
             model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500" },
             contentDescription = "Album borító",
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(300.dp)
-                .shadow(24.dp, RoundedCornerShape(16.dp))
+                .size(220.dp)
+                .shadow(16.dp, RoundedCornerShape(16.dp))
                 .clip(RoundedCornerShape(16.dp))
         )
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Cím és Előadó
         Text(
             text = song.title,
-            fontSize = 26.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = song.artist,
-            fontSize = 18.sp,
+            fontSize = 16.sp,
             color = Color.Gray,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Lejátszási csúszka (Slider)
         Slider(
@@ -194,11 +195,11 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
             Text(formatTime(position), color = Color.Gray, fontSize = 12.sp)
             Text(formatTime(duration), color = Color.Gray, fontSize = 12.sp)
         }
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Lejátszás vezérlő (Play/Pause)
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.CenterHorizontally,
             horizontalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -213,37 +214,36 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
                     }
                 },
                 modifier = Modifier
-                    .size(72.dp)
+                    .size(64.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
             ) {
-                Text(if (isPlaying) "⏸" else "▶", fontSize = 32.sp, color = Color.Black)
+                Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
             }
         }
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Dalszöveg nézet
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xFF16221B))
                 .padding(16.dp)
         ) {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column {
                 Text(
                     text = "Dalszöveg",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     color = Color.White
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = lyrics,
                     color = Color.LightGray,
-                    fontSize = 16.sp,
-                    lineHeight = 24.sp
+                    fontSize = 15.sp,
+                    lineHeight = 22.sp
                 )
             }
         }
