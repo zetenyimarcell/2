@@ -117,7 +117,7 @@ fun AppNavigation(exoPlayer: ExoPlayer?) {
     }
 }
 
-// BEJELENTKEZÉS ÉS REGISZTRÁCIÓ (Felhasználónév, Google, Telefonszám támogatással)
+// BEJELENTKEZÉS ÉS REGISZTRÁCIÓ
 @Composable
 fun LoginScreen(onLoginSuccess: () -> Unit) {
     var isSignUp by remember { mutableStateOf(false) }
@@ -214,7 +214,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
         Divider(modifier = Modifier.padding(vertical = 12.dp))
 
-        // Google Bejelentkezés gomb
         OutlinedButton(
             onClick = { errorMessage = "Google bejelentkezés gomb megnyomva" },
             modifier = Modifier.fillMaxWidth()
@@ -226,7 +225,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Telefonszámos váltó gomb
         OutlinedButton(
             onClick = { isPhoneLogin = !isPhoneLogin },
             modifier = Modifier.fillMaxWidth()
@@ -252,7 +250,6 @@ fun HomeScreen(exoPlayer: ExoPlayer?) {
 
 data class Song(val title: String, val uploader: String, val url: String)
 
-// JAVÍTOTT KERESŐ MOTOR (JSON Objektum kezeléssel)
 @Composable
 fun SearchScreen(exoPlayer: ExoPlayer?) {
     var query by remember { mutableStateOf("") }
@@ -331,12 +328,10 @@ suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.
     }
 }
 
-// JAVÍTOTT ZENEFELISMERŐ MIKROFON ENGEDÉLLYEL
 @Composable
 fun AudioRecognizerScreen() {
     val context = LocalContext.current
     var isListening by remember { mutableStateOf(false) }
-    var statusText.let { }
     var status by remember { mutableStateOf("Koppints a mikrofonra a zene azonosításához") }
 
     val permissionLauncher = rememberLauncherForActivityResult(
