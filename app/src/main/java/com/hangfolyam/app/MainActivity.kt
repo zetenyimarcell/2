@@ -25,6 +25,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material3.Icon
 
 // ========== ADATMODELL ==========
 data class Song(
@@ -97,7 +102,7 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
 
     // Lejátszási idő (csúszka) folyamatos frissítése
     LaunchedEffect(player) {
-        while (true) {
+        while (isActive) {
             player?.let {
                 if (!seeking) {
                     position = it.currentPosition.toFloat()
@@ -167,7 +172,9 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
                 seeking = true 
             },
             onValueChangeFinished = {
-                player?.seekTo(position.toLong())
+                // clamp a pozíciót, hogy ne legyen kívül eső érték
+                val seekPos = position.coerceIn(0f, if (duration > 0f) duration else 1f)
+                player?.seekTo(seekPos.toLong())
                 seeking = false
             },
             valueRange = 0f..(if (duration > 0f) duration else 1f),
@@ -199,7 +206,7 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
 
         // Lejátszás vezérlő (Play/Pause)
         Row(
-            verticalAlignment = Alignment.CenterHorizontally,
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -218,7 +225,11 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
             ) {
-                Text(if (isPlaying) "⏸" else "▶", fontSize = 28.sp, color = Color.Black)
+                Icon(
+                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.Black
+                )
             }
         }
         Spacer(modifier = Modifier.height(20.dp))
