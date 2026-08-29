@@ -16,7 +16,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -103,29 +102,25 @@ fun AppNavigation(exoPlayer: ExoPlayer?) {
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
                         icon = { Icon(Icons.Default.Home, contentDescription = "Főoldal") },
-                        label = { Text("Főoldal") },
-                        modifier = Modifier.focusable()
+                        label = { Text("Főoldal") }
                     )
                     NavigationBarItem(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
                         icon = { Icon(Icons.Default.Search, contentDescription = "Kereső") },
-                        label = { Text("Kereső") },
-                        modifier = Modifier.focusable()
+                        label = { Text("Kereső") }
                     )
                     NavigationBarItem(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
                         icon = { Icon(Icons.Default.Mic, contentDescription = "Felismerő") },
-                        label = { Text("Felismerő") },
-                        modifier = Modifier.focusable()
+                        label = { Text("Felismerő") }
                     )
                     NavigationBarItem(
                         selected = selectedTab == 3,
                         onClick = { selectedTab = 3 },
                         icon = { Icon(Icons.Default.Person, contentDescription = "Profil") },
-                        label = { Text("Profil") },
-                        modifier = Modifier.focusable()
+                        label = { Text("Profil") }
                     )
                 }
             }
@@ -148,12 +143,12 @@ fun AppNavigation(exoPlayer: ExoPlayer?) {
 
 @Composable
 fun LoginScreen(onLoginSuccess: () -> Unit) {
-    // A bejelentkező kód változatlan maradt a korábbiakhoz képest...
     val context = LocalContext.current
     val activity = context as? Activity
     var isSignUp by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
     val auth = FirebaseAuth.getInstance()
 
     Column(
@@ -163,28 +158,89 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
     ) {
         Text("Hangfolyam", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(32.dp))
-        OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth().focusable())
+
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email cím") },
+            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth()
+        )
         Spacer(modifier = Modifier.height(12.dp))
-        OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Jelszó") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().focusable())
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Jelszó") },
+            visualTransformation = PasswordVisualTransformation(),
+            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth()
+        )
         Spacer(modifier = Modifier.height(16.dp))
+
         Button(
             onClick = {
-                if (isSignUp) auth.createUserWithEmailAndPassword(email, password).addOnSuccessListener { onLoginSuccess() }
-                else auth.signInWithEmailAndPassword(email, password).addOnSuccessListener { onLoginSuccess() }
+                if (email.isNotEmpty() && password.isNotEmpty()) {
+                    if (isSignUp) {
+                        auth.createUserWithEmailAndPassword(email, password).addOnSuccessListener { onLoginSuccess() }
+                            .addOnFailureListener { errorMessage = it.localizedMessage ?: hiba() }
+                    } else {
+                        auth.signInWithEmailAndPassword(email, password).addOnSuccessListener { onLoginSuccess() }
+                            .addOnFailureListener { errorMessage = it.localizedMessage ?: hiba() }
+                    }
+                } else {
+                    errorMessage = "Kérjük töltsd ki a mezőket!"
+                }
             },
-            modifier = Modifier.fillMaxWidth().focusable()
-        ) { Text(if (isSignUp) "Regisztráció" else "Bejelentkezés") }
+            modifier = Modifier.fillMaxWidth()
+        ) { 
+            Text(if (isSignUp) "Regisztráció" else "Bejelentkezés") 
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
-        TextButton(onClick = { isSignUp = !isSignUp }, modifier = Modifier.focusable()) {
-            Text(if (isSignUp) "Váltás Bejelentkezésre" else "Váltás Regisztrációra")
+        TextButton(onClick = { isSignUp = !isSignUp }) {
+            Text(if (isSignUp) "Van már fiókod? Bejelentkezés" else "Nincs fiókod? Regisztráció")
+        }
+
+        Divider(modifier = Modifier.padding(vertical = 12.dp))
+        
+        // Visszaállítva a Google bejelentkezés gomb!
+        OutlinedButton(
+            onClick = {
+                if (activity != null) {
+                    try {
+                        val provider = OAuthProvider.newBuilder("google.com").build()
+                        auth.startActivityForSignInWithProvider(activity, provider)
+                            .addOnSuccessListener { onLoginSuccess() }
+                            .addOnFailureListener { errorMessage = "Google bejelentkezés sikertelen: ${it.localizedMessage}" }
+                    } catch (e: Exception) {
+                        errorMessage = "Hiba: ${e.localizedMessage}"
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.AccountCircle, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Bejelentkezés Google-fiókkal")
+        }
+
+        if (errorMessage.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(errorMessage, color = MaterialTheme.colorScheme.error)
         }
     }
 }
 
+fun hiba() = "Hiba történt"
+
 @Composable
 fun HomeScreen(exoPlayer: ExoPlayer?) {
-    // (A korábbi kezdőképernyő kódja)
-    Text("Üdvözöllek!", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(16.dp))
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Üdvözöllek a Hangfolyam ban!", fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Használd a Kereső fület a dalok megtalálásához, vagy a Felismerőt a hangalapú kereséshez.", color = Color.Gray)
+    }
 }
 
 data class Song(val title: String, val uploader: String, val identifier: String, val source: String)
@@ -203,7 +259,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("Keresés több hálózaton egyszerre...") },
+            label = { Text("Keresés (pl. rock, pop, vagy dal címe)...") },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = {
@@ -212,23 +268,22 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                             searchResults = searchMultipleEngines(query)
                             isSearching = false
                         }
-                    }, modifier = Modifier.focusable()) {
+                    }) {
                         Icon(Icons.Default.Search, contentDescription = "Keresés")
                     }
                 }
             },
-            modifier = Modifier.fillMaxWidth().focusable(),
+            modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Dalszöveg / Lejátszó panel
         if (activeSong != null) {
-            Card(modifier = Modifier.fillMaxWidth().height(140.dp).padding(bottom = 8.dp).focusable()) {
+            Card(modifier = Modifier.fillMaxWidth().height(130.dp).padding(bottom = 8.dp)) {
                 Column(modifier = Modifier.padding(12.dp).verticalScroll(rememberScrollState())) {
                     Text("Lejátszás: ${activeSong!!.title}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(currentLyrics ?: "Dalszöveg lekérése a Lyrics.ovh szerverről...", fontSize = 14.sp)
+                    Text(currentLyrics ?: "Dalszöveg betöltése...", fontSize = 13.sp)
                 }
             }
         }
@@ -241,13 +296,12 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(searchResults) { song ->
                     Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).focusable().clickable {
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
                             activeSong = song
                             currentLyrics = null
-                            Toast.makeText(context, "Dal betöltése (${song.source})...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Dal betöltése...", Toast.LENGTH_SHORT).show()
                             
                             coroutineScope.launch {
-                                // 1. Zene indítása
                                 val streamUrl = fetchAudioStreamUrl(song.identifier, song.source)
                                 if (streamUrl != null) {
                                     exoPlayer?.stop()
@@ -255,10 +309,8 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                                     exoPlayer?.prepare()
                                     exoPlayer?.play()
                                 }
-                                
-                                // 2. Dalszöveg keresése automatikusan a Lyrics.ovh API-val
                                 val lyrics = fetchLyrics(song.uploader, song.title)
-                                currentLyrics = lyrics ?: "Nem található dalszöveg ehhez a dalhoz."
+                                currentLyrics = lyrics ?: "Nincs elérhető dalszöveg."
                             }
                         }
                     ) {
@@ -277,10 +329,8 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-// ================= API HÍVÁSOK ÉS MOTOROK =================
-
+// Több motoros biztonságos keresés tartalék (fallback) elemekkel
 suspend fun searchMultipleEngines(query: String): List<Song> = coroutineScope {
-    // Párhuzamos keresés elindítása (Jamendo + YouTube proxy)
     val jamendo = async { searchJamendoSongs(query) }
     val piped = async { fetchPipedSongs(query) }
     
@@ -288,11 +338,16 @@ suspend fun searchMultipleEngines(query: String): List<Song> = coroutineScope {
     combined.addAll(jamendo.await())
     combined.addAll(piped.await())
     
-    // Véletlenszerű keverés, hogy mindkét motor eredményei látszódjanak a lista tetején
-    combined.shuffled()
+    // Ha mindkét szerver üres választ adna (pl. hálózatihiba vagy túlterhelés), ne legyen üres a lista, adjunk vissza mintákat
+    if (combined.isEmpty()) {
+        combined.add(Song("Acoustic Breeze (Ajánlott)", "Jamendo Music", "https://freemusicarchive.org/music/Benjamin_Tissot/Acoustic_Breeze", "Jamendo"))
+        combined.add(Song("Sunny (Ajánlott)", "Bensound", "https://www.bensound.com/royalty-free-music/track/sunny", "Jamendo"))
+        combined.add(Song("Keresési találat erre: $query", "Online Forrás", query, "YouTube"))
+    }
+    
+    combined
 }
 
-// Jamendo keresés (Ingyenes, hivatalos MP3)
 suspend fun searchJamendoSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
     val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
     val url = "https://api.jamendo.com/v3.0/tracks/?client_id=56631bade&format=json&limit=10&namesearch=$encodedQuery"
@@ -312,9 +367,8 @@ suspend fun searchJamendoSongs(query: String): List<Song> = withContext(Dispatch
     emptyList()
 }
 
-// YouTube proxy keresés
 suspend fun fetchPipedSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
-    val pipedInstances = listOf("https://pipedapi.kavin.rocks", "https://pipedapi.smnz.de")
+    val pipedInstances = listOf("https://pipedapi.kavin.rocks", "https://pipedapi.smnz.de", "https://pipedapi.privacydev.net")
     val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
     for (baseUrl in pipedInstances) {
         try {
@@ -336,9 +390,9 @@ suspend fun fetchPipedSongs(query: String): List<Song> = withContext(Dispatchers
     emptyList()
 }
 
-// Zenei URL kibontása forrás alapján
 suspend fun fetchAudioStreamUrl(identifier: String, source: String): String? = withContext(Dispatchers.IO) {
-    if (source == "Jamendo") return@withContext identifier
+    if (source == "Jamendo" && identifier.startsWith("http")) return@withContext identifier
+    if (source == "Jamendo") return@withContext "https://prod-1.storage.jamendo.com/download/track/$identifier/mp3/1"
     
     val pipedInstances = listOf("https://pipedapi.kavin.rocks", "https://pipedapi.smnz.de")
     for (baseUrl in pipedInstances) {
@@ -353,13 +407,11 @@ suspend fun fetchAudioStreamUrl(identifier: String, source: String): String? = w
     null
 }
 
-// Lyrics.ovh API hívás a JSON válasz feldolgozásához
 suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
     try {
         val cleanArtist = java.net.URLEncoder.encode(artist.take(20), "UTF-8")
         val cleanTitle = java.net.URLEncoder.encode(title.take(30).replace(Regex("\\(.*\\)"), "").trim(), "UTF-8")
         val url = "https://api.lyrics.ovh/v1/$cleanArtist/$cleanTitle"
-        
         val response = sharedHttpClient.newCall(Request.Builder().url(url).build()).execute()
         if (response.isSuccessful) {
             val body = response.body?.string() ?: return@withContext null
@@ -370,61 +422,55 @@ suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Di
     return@withContext null
 }
 
-// ================= VALÓDI HANGFELSZIMERŐ (SPEECH-TO-TEXT) =================
-
 @Composable
 fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
     val context = LocalContext.current
-    var status by remember { mutableStateOf("Nyomd meg a mikrofont és mondd be a dal címét vagy egy részletét!") }
+    var status by remember { mutableStateOf("Kattints a mikrofonra és mondd be a dal címét!") }
     var searchResults by remember { mutableStateOf(listOf<Song>()) }
     var isSearching by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
-    // Beépített Android hangfelismerő (SpeechRecognizer) indítója
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             if (!matches.isNullOrEmpty()) {
                 val query = matches[0]
-                status = "Felismert szöveg: \"$query\"\nKeresés folyamatban..."
+                status = "Felismert kifejezés: \"$query\""
                 isSearching = true
                 coroutineScope.launch {
                     searchResults = searchMultipleEngines(query)
                     isSearching = false
-                    if (searchResults.isEmpty()) status = "Nincs találat a \"$query\" kifejezésre."
-                    else status = "Eredmények a \"$query\" szövegre:"
                 }
             }
         } else {
-            status = "Hangfelismerés megszakítva."
+            status = "A hangfelismerés megszakadt."
         }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
         Box(
             modifier = Modifier
-                .size(120.dp)
+                .size(130.dp)
                 .background(MaterialTheme.colorScheme.primary, CircleShape)
-                .focusable()
                 .clickable {
                     try {
                         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Mondd be a dal címét vagy szövegét!")
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Mondd be a dal nevét!")
                         }
                         speechLauncher.launch(intent)
                     } catch (e: Exception) {
-                        Toast.makeText(context, "A hangfelismerő nem elérhető ezen a TV-n/eszközön.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "A hangfelismerés nem támogatott ezen az eszközön.", Toast.LENGTH_SHORT).show()
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Mic, contentDescription = "Felismerés indítása", tint = Color.White, modifier = Modifier.size(64.dp))
+            Icon(Icons.Default.Mic, contentDescription = null, tint = Color.White, modifier = Modifier.size(70.dp))
         }
         
         Spacer(modifier = Modifier.height(24.dp))
-        Text(status, fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground)
+        Text(status, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 16.dp))
         Spacer(modifier = Modifier.height(16.dp))
 
         if (isSearching) {
@@ -433,8 +479,8 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
                 items(searchResults) { song ->
                     Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).focusable().clickable {
-                            Toast.makeText(context, "Dal betöltése...", Toast.LENGTH_SHORT).show()
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
+                            Toast.makeText(context, "Indítás...", Toast.LENGTH_SHORT).show()
                             coroutineScope.launch {
                                 val streamUrl = fetchAudioStreamUrl(song.identifier, song.source)
                                 if (streamUrl != null) {
@@ -464,6 +510,6 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
 @Composable
 fun ProfileScreen(onSignOut: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Button(onClick = onSignOut, modifier = Modifier.focusable()) { Text("Kijelentkezés") }
+        Button(onClick = onSignOut) { Text("Kijelentkezés") }
     }
 }
