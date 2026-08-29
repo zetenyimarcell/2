@@ -10,11 +10,11 @@ on:
     branches:
       - main
       - master
-  workflow_dispatch: # Ez a sor teszi lehetővé, hogy kézzel is el tudd indítani a GitHub felületén (Actions fülön)
+  workflow_dispatch:
 
 jobs:
   build:
-    name: Upload APK
+    name: Build and Upload APK
     runs-on: ubuntu-latest
 
     steps:
@@ -30,7 +30,6 @@ jobs:
           distribution: 'temurin'
 
       # 3. Gradle környezet automatikus letöltése és beállítása
-     # 3. Gradle környezet beállítása (stabil 8.5-ös verzióval az AGP 8.2.0-hoz)
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
@@ -49,7 +48,7 @@ jobs:
           echo "A KULCSOD ITT LESZ A KOVETKEZO SORBAN:"
           keytool -list -v -keystore app/nova-release.keystore -alias nova-key -storepass "${{ secrets.KEYSTORE_PASSWORD }}" | grep "SHA1:" || true
 
-      # 6. APK építése (ha van gradlew azt futtatja, ha nincs, a telepített gradle-t használja)
+      # 6. APK építése
       - name: APK építése
         run: |
           set -e
@@ -69,39 +68,13 @@ jobs:
         if: always()
         run: |
           echo "Working directory: $(pwd)"
-          echo "Repository root listing"
           ls -la || true
-          echo "Listing app directory"
-          ls -la app || true
-          echo "Listing all build/outputs (recursive)"
-          ls -R **/build/outputs || true
-          echo "Find gradlew files"
-          find . -type f -name "gradlew" -print || true
-          echo "Find settings.gradle files"
-          find . -type f -name "settings.gradle*" -print || true
-          echo "Find any .apk or .aab files"
-          find . -type f \( -name "*.apk" -o -name "*.aab" \) -print || true
+          ls -R app/build/outputs || true
 
-      # 8. Elkészült APK(k) feltöltése a GitHub Actions felületre
-      - name: Upload APK artifacts (robust globs)
+      # 8. KIZÁRÓLAG az APK feltöltése
+      - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-apks
-          path: |
-            app/build/outputs/**/*.apk
-            **/app/build/outputs/**/*.apk
-            **/build/outputs/**/*.apk
-            app/build/outputs/**/*.aab
-            **/build/outputs/**/*.aab
-            **/build/outputs/**/*
-
-      # 9. Log fájl feltöltése
-     - name: Build Debug APK
-  run: ./gradlew assembleDebug
-
-- name: Upload APK
-  uses: actions/upload-artifact@v4
-  with:
-    name: Hangfolyam-App-Debug
-    path: app/build/outputs/apk/debug/app-debug.apk
+          name: Hangfolyam-App-Debug
+          path: app/build/outputs/apk/**/*.apk
