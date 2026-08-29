@@ -26,6 +26,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
       - name: Allando keystore visszaallitasa a Secret-bol
         run: |
           mkdir -p app
@@ -33,11 +36,21 @@ jobs:
 
       - name: APK építése
         run: |
-          chmod +x gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          GW=$(find . -maxdepth 5 -type f -name gradlew | head -n1 || true)
+          if [ -n "$GW" ]; then
+            echo "gradlew megtalalva itt: $GW"
+            GW_DIR=$(dirname "$GW")
+            chmod +x "$GW"
+            cd "$GW_DIR"
+            ./gradlew assembleDebug --no-daemon
+          else
+            echo "Nincs gradlew, rendszer-gradle használata..."
+            gradle assembleDebug --no-daemon
+          fi
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Hangfolyam-App-Debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: '**/*.apk'
