@@ -257,7 +257,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
             value = query,
             onValueChange = { query = it },
             label = { Text("Zene keresése (pl. rock, pop, piano)...") },
-            trailingIcon: {
+            trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = {
                         isSearching = true
@@ -405,7 +405,6 @@ suspend fun searchJamendoSongs(query: String): List<Song> = withContext(Dispatch
         }
     } catch (_: Exception) {}
     
-    // Biztosan működő, nyilvános teszt/demó hangfájlok tartalékként
     return@withContext listOf(
         Song("Classical Piano Demo", "Public Domain", "https://upload.wikimedia.org/wikipedia/commons/b/b2/Beethoven_Moonlight_1st_movement.ogg"),
         Song("Jazz Jam Demo", "Internet Archive", "https://archive.org/download/testmp3testfile/mp3threetest.mp3"),
