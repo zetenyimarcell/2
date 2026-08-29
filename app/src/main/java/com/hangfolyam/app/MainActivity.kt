@@ -190,7 +190,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             Text(if (isSignUp) "Van már fiókod? Bejelentkezés" else "Nincs fiókod? Regisztráció")
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+        Divider(modifier = Modifier.padding(vertical = 12.dp))
 
         OutlinedButton(
             onClick = {
@@ -261,7 +261,7 @@ fun HomeScreen(exoPlayer: ExoPlayer?) {
                 recentSongs.forEach { song ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable {
-                             Toast.makeText(context, "Keresd meg a Keresőben a lejátszáshoz!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Keresd meg a Keresőben a lejátszáshoz!", Toast.LENGTH_SHORT).show()
                         },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -563,7 +563,7 @@ fun ProfileScreen(onSignOut: () -> Unit) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Statisztikák", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Mentett dalok:")
                         Text("12", fontWeight = FontWeight.Bold)
