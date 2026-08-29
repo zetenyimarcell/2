@@ -1,4 +1,4 @@
-package com.example.musicplayer // Ezt cseréld ki a saját csomagnevedre!
+package com.hangfolyam.app
 
 import android.content.Context
 import android.os.Bundle
