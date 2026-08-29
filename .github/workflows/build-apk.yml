@@ -76,4 +76,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Hangfolyam-App-Debug
-          path: app/build/outputs/apk/**/*.apk
+          path: '**/*.apk'
