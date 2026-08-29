@@ -23,7 +23,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -33,12 +32,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
-import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.OAuthProvider
-import com.google.firebase.auth.PhoneAuthCredential
-import com.google.firebase.auth.PhoneAuthOptions
-import com.google.firebase.auth.PhoneAuthProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -46,7 +41,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private var exoPlayer: ExoPlayer? = null
@@ -131,13 +125,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
     var isSignUp by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    
-    var isPhoneLogin by remember { mutableStateOf(false) }
-    var phoneNumber by remember { mutableStateOf("") }
-    var verificationCode by remember { mutableStateOf("") }
-    var storedVerificationId by remember { mutableStateOf("") }
-    var codeSent by remember { mutableStateOf(false) }
-    
     var errorMessage by remember { mutableStateOf("") }
 
     val auth = FirebaseAuth.getInstance()
@@ -150,103 +137,51 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
         Text("Hangfolyam", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(32.dp))
 
-        if (isPhoneLogin) {
-            if (!codeSent) {
-                OutlinedTextField(
-                    value = phoneNumber,
-                    onValueChange = { phoneNumber = it },
-                    label = { Text("Telefonszám (+36...)") },
-                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        if (activity != null && phoneNumber.isNotEmpty()) {
-                            val options = PhoneAuthOptions.newBuilder(auth)
-                                .setPhoneNumber(phoneNumber)
-                                .setTimeout(60L, TimeUnit.SECONDS)
-                                .setActivity(activity)
-                                .setCallbacks(object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
-                                    override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-                                        auth.signInWithCredential(credential).addOnSuccessListener { onLoginSuccess() }
-                                    }
-                                    override fun onVerificationFailed(e: FirebaseException) {
-                                        errorMessage = e.localizedMessage ?: "Hiba a küldéskor"
-                                    }
-                                    override fun onCodeSent(verId: String, token: PhoneAuthProvider.ForceResendingToken) {
-                                        storedVerificationId = verId
-                                        codeSent = true
-                                    }
-                                }).build()
-                            PhoneAuthProvider.verifyPhoneNumber(options)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Kód küldése SMS-ben") }
-            } else {
-                OutlinedTextField(
-                    value = verificationCode,
-                    onValueChange = { verificationCode = it },
-                    label = { Text("6 számjegyű SMS kód") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        val credential = PhoneAuthProvider.getCredential(storedVerificationId, verificationCode)
-                        auth.signInWithCredential(credential)
-                            .addOnSuccessListener { onLoginSuccess() }
-                            .addOnFailureListener { errorMessage = "Hibás kód!" }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Belépés") }
-            }
-        } else {
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("Email cím") },
-                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Jelszó") },
-                visualTransformation = PasswordVisualTransformation(),
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email cím") },
+            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Jelszó") },
+            visualTransformation = PasswordVisualTransformation(),
+            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
-                onClick = {
-                    if (email.isNotEmpty() && password.isNotEmpty()) {
-                        if (isSignUp) {
-                            auth.createUserWithEmailAndPassword(email, password)
-                                .addOnSuccessListener { onLoginSuccess() }
-                                .addOnFailureListener { errorMessage = it.localizedMessage ?: "Regisztrációs hiba" }
-                        } else {
-                            auth.signInWithEmailAndPassword(email, password)
-                                .addOnSuccessListener { onLoginSuccess() }
-                                .addOnFailureListener { errorMessage = it.localizedMessage ?: "Hibás adatok vagy lejárt fiók" }
-                        }
+        Button(
+            onClick = {
+                if (email.isNotEmpty() && password.isNotEmpty()) {
+                    if (isSignUp) {
+                        auth.createUserWithEmailAndPassword(email, password)
+                            .addOnSuccessListener { onLoginSuccess() }
+                            .addOnFailureListener { errorMessage = it.localizedMessage ?: "Regisztrációs hiba" }
+                    } else {
+                        auth.signInWithEmailAndPassword(email, password)
+                            .addOnSuccessListener { onLoginSuccess() }
+                            .addOnFailureListener { errorMessage = it.localizedMessage ?: "Hibás adatok vagy lejárt fiók" }
                     }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (isSignUp) "Regisztráció" else "Bejelentkezés") }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { 
+            Text(if (isSignUp) "Regisztráció" else "Bejelentkezés") 
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-        TextButton(onClick = { isSignUp = !isSignUp; isPhoneLogin = false; codeSent = false }) {
+        TextButton(onClick = { isSignUp = !isSignUp }) {
             Text(if (isSignUp) "Van már fiókod? Bejelentkezés" else "Nincs fiókod? Regisztráció")
         }
 
         Divider(modifier = Modifier.padding(vertical = 12.dp))
 
-        // Valós Google Bejelentkezés hívás (OAuthProvider)
         OutlinedButton(
             onClick = {
                 if (activity != null) {
@@ -261,15 +196,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             Icon(Icons.Default.AccountCircle, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Bejelentkezés Google-fiókkal")
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = { isPhoneLogin = !isPhoneLogin; codeSent = false },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Default.Phone, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(if (isPhoneLogin) "Vissza az emailes belépéshez" else "Bejelentkezés telefonszámmal")
         }
 
         if (errorMessage.isNotEmpty()) {
@@ -337,7 +263,7 @@ fun HomeScreen(exoPlayer: ExoPlayer?) {
 
 data class Song(val title: String, val uploader: String, val url: String)
 
-// 3. JAVÍTOTT KERESŐ (Stabilabb API végponttal és hibakezeléssel)
+// 3. KERESŐ
 @Composable
 fun SearchScreen(exoPlayer: ExoPlayer?) {
     var query by remember { mutableStateOf("") }
@@ -407,7 +333,6 @@ suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.
     try {
         val client = OkHttpClient()
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        // Stabilabb Piped instance:
         val url = "https://pipedapi.adminforge.de/search?q=$encodedQuery&filter=music_songs"
         val request = Request.Builder().url(url).build()
         val response = client.newCall(request).execute()
@@ -433,7 +358,7 @@ suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.
     }
 }
 
-// 4. ZENEFELISMERŐ (Szimulált valósághű működés)
+// 4. ZENEFELISMERŐ (Szimulált)
 @Composable
 fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
     val context = LocalContext.current
@@ -469,7 +394,6 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                             foundSong = null
                             status = "Zene hallgatása és elemzése..."
                             
-                            // Szimulált API hívás késleltetés (Mivel valós API kulcs nincs beállítva)
                             coroutineScope.launch {
                                 delay(3500)
                                 isListening = false
@@ -506,7 +430,7 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-// 5. BŐVÍTETT PROFIL
+// 5. PROFIL
 @Composable
 fun ProfileScreen(onSignOut: () -> Unit) {
     val user = FirebaseAuth.getInstance().currentUser
@@ -521,7 +445,7 @@ fun ProfileScreen(onSignOut: () -> Unit) {
                 Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(80.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Spacer(modifier = Modifier.height(16.dp))
-            Text(user?.email ?: user?.phoneNumber ?: "Ismeretlen Felhasználó", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(user?.email ?: "Ismeretlen Felhasználó", fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text("Ingyenes fiók", color = Color.Gray)
             Spacer(modifier = Modifier.height(32.dp))
         }
