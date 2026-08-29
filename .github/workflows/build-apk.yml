@@ -33,10 +33,11 @@ jobs:
     - name: APK epitese
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-      run: gradle :app:assembleDebug --info
+      run: gradle :app:assembleDebug --info --debug 2>&1 | tee build.log
 
-    - name: Letoltes letrehozasa
-      uses: actions/upload-artifact@v4
-      with:
-        name: Nova-Zene-APK
-        path: app/build/outputs/apk/debug/app-debug.apk
+   - name: Upload build log
+  if: failure()
+  uses: actions/upload-artifact@v4
+  with:
+    name: build-log
+    path: build.log
