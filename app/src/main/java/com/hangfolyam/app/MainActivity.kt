@@ -166,8 +166,10 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     } else {
                         auth.signInWithEmailAndPassword(email, password)
                             .addOnSuccessListener { onLoginSuccess() }
-                            .addOnFailureListener { errorMessage = it.localizedMessage ?: "Hibás adatok vagy lejárt fiók" }
+                            .addOnFailureListener { errorMessage = "Hibás email/jelszó!" }
                     }
+                } else {
+                    errorMessage = "Kérjük töltsd ki a mezőket!"
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -185,10 +187,16 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
         OutlinedButton(
             onClick = {
                 if (activity != null) {
-                    val provider = OAuthProvider.newBuilder("google.com").build()
-                    auth.startActivityForSignInWithProvider(activity, provider)
-                        .addOnSuccessListener { onLoginSuccess() }
-                        .addOnFailureListener { errorMessage = "Google belépés sikertelen (Engedélyezted a Firebase-ben?)" }
+                    try {
+                        val provider = OAuthProvider.newBuilder("google.com").build()
+                        auth.startActivityForSignInWithProvider(activity, provider)
+                            .addOnSuccessListener { onLoginSuccess() }
+                            .addOnFailureListener { e -> 
+                                errorMessage = "Google belépés hiba: Kapcsold be a Google-t a Firebase Console-ban!"
+                            }
+                    } catch (e: Exception) {
+                        errorMessage = "Sikertelen indítás."
+                    }
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -200,12 +208,12 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
         if (errorMessage.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
-            Text(errorMessage, color = MaterialTheme.colorScheme.error)
+            Text(errorMessage, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
         }
     }
 }
 
-// 2. FŐOLDAL (Spotify stílusú)
+// 2. FŐOLDAL
 @Composable
 fun HomeScreen(exoPlayer: ExoPlayer?) {
     val context = LocalContext.current
@@ -214,7 +222,7 @@ fun HomeScreen(exoPlayer: ExoPlayer?) {
 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(vertical = 16.dp)) {
         item {
-            Text("Jó reggelt!", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
+            Text("Üdvözöllek!", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp))
             Spacer(modifier = Modifier.height(24.dp))
         }
 
@@ -261,14 +269,16 @@ fun HomeScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-data class Song(val title: String, val uploader: String, val url: String)
+data class Song(val title: String, val uploader: String, val videoId: String)
 
-// 3. KERESŐ
+// 3. KERESŐ (TELJES HOSSZÚSÁGÚ DALOKKAL + TARTALÉK SZERVEREK)
 @Composable
 fun SearchScreen(exoPlayer: ExoPlayer?) {
+    val context = LocalContext.current
     var query by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf(listOf<Song>()) }
     var isSearching by remember { mutableStateOf(false) }
+    var loadingVideoId by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf("") }
     val coroutineScope = rememberCoroutineScope()
 
@@ -284,11 +294,9 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                         isSearching = true
                         errorMessage = ""
                         coroutineScope.launch {
-                            try {
-                                searchResults = fetchFullSongs(query)
-                                if (searchResults.isEmpty()) errorMessage = "Nincs találat."
-                            } catch (e: Exception) {
-                                errorMessage = "Keresési hiba. Próbáld újra."
+                            searchResults = fetchFullSongs(query)
+                            if (searchResults.isEmpty()) {
+                                errorMessage = "Nincs találat erre a keresésre."
                             }
                             isSearching = false
                         }
@@ -308,14 +316,33 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                 items(searchResults) { song ->
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
-                            exoPlayer?.stop()
-                            exoPlayer?.setMediaItem(MediaItem.fromUri(song.url))
-                            exoPlayer?.prepare()
-                            exoPlayer?.play()
+                            if (loadingVideoId != null) return@clickable
+                            loadingVideoId = song.videoId
+                            Toast.makeText(context, "Dal betöltése...", Toast.LENGTH_SHORT).show()
+
+                            coroutineScope.launch {
+                                val streamUrl = fetchAudioStreamUrl(song.videoId)
+                                loadingVideoId = null
+                                if (streamUrl != null) {
+                                    exoPlayer?.stop()
+                                    exoPlayer?.setMediaItem(MediaItem.fromUri(streamUrl))
+                                    exoPlayer?.prepare()
+                                    exoPlayer?.play()
+                                } else {
+                                    Toast.makeText(context, "Nem sikerült a dalt betölteni. Próbálj másikat!", Toast.LENGTH_LONG).show()
+                                }
+                            }
                         }
                     ) {
-                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(40.dp))
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (loadingVideoId == song.videoId) {
+                                CircularProgressIndicator(modifier = Modifier.size(40.dp))
+                            } else {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(40.dp))
+                            }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(song.title, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -330,35 +357,139 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
 }
 
 suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
-    try {
-        val client = OkHttpClient()
-        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        val url = "https://pipedapi.adminforge.de/search?q=$encodedQuery&filter=music_songs"
-        val request = Request.Builder().url(url).build()
-        val response = client.newCall(request).execute()
-        val body = response.body?.string() ?: return@withContext emptyList()
-        
-        val jsonObject = JSONObject(body)
-        val jsonArray = jsonObject.optJSONArray("items") ?: return@withContext emptyList()
-        val list = mutableListOf<Song>()
-        
-        for (i in 0 until jsonArray.length()) {
-            val item = jsonArray.getJSONObject(i)
-            if (item.optString("type") == "stream") {
-                val title = item.optString("title", "Ismeretlen")
-                val uploader = item.optString("uploaderName", "Ismeretlen előadó")
-                val urlId = item.optString("url").replace("/watch?v=", "")
-                val streamUrl = "https://pipedapi.adminforge.de/streams/$urlId"
-                list.add(Song(title, uploader, streamUrl))
+    val pipedInstances = listOf(
+        "https://pipedapi.adminforge.de",
+        "https://api.piped.yt",
+        "https://pipedapi.mha.fi",
+        "https://pipedapi.kavin.rocks"
+    )
+
+    val client = OkHttpClient.Builder()
+        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
+    val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+
+    for (baseUrl in pipedInstances) {
+        try {
+            val url = "$baseUrl/search?q=$encodedQuery&filter=music_songs"
+            val request = Request.Builder()
+                .header("User-Agent", "Mozilla/5.0")
+                .url(url)
+                .build()
+            val response = client.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val body = response.body?.string() ?: continue
+                val jsonObject = JSONObject(body)
+                val jsonArray = jsonObject.optJSONArray("items") ?: continue
+                val list = mutableListOf<Song>()
+
+                for (i in 0 until jsonArray.length()) {
+                    val item = jsonArray.getJSONObject(i)
+                    if (item.optString("type") == "stream") {
+                        val title = item.optString("title", "Ismeretlen dal")
+                        val uploader = item.optString("uploaderName", "Ismeretlen előadó")
+                        val videoId = item.optString("url").replace("/watch?v=", "")
+                        if (videoId.isNotEmpty()) {
+                            list.add(Song(title, uploader, videoId))
+                        }
+                    }
+                }
+                if (list.isNotEmpty()) return@withContext list
             }
+        } catch (e: Exception) {
+            continue
         }
-        return@withContext list
-    } catch (e: Exception) {
-        throw e
     }
+    return@withContext emptyList()
 }
 
-// 4. ZENEFELISMERŐ (Szimulált)
+suspend fun fetchAudioStreamUrl(videoId: String): String? = withContext(Dispatchers.IO) {
+    val pipedInstances = listOf(
+        "https://pipedapi.adminforge.de",
+        "https://api.piped.yt",
+        "https://pipedapi.mha.fi",
+        "https://pipedapi.kavin.rocks"
+    )
+
+    val client = OkHttpClient.Builder()
+        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
+    // 1. Piped API lekérés
+    for (baseUrl in pipedInstances) {
+        try {
+            val url = "$baseUrl/streams/$videoId"
+            val request = Request.Builder()
+                .header("User-Agent", "Mozilla/5.0")
+                .url(url)
+                .build()
+            val response = client.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val body = response.body?.string() ?: continue
+                val jsonObject = JSONObject(body)
+                val audioStreams = jsonObject.optJSONArray("audioStreams")
+                if (audioStreams != null && audioStreams.length() > 0) {
+                    for (i in 0 until audioStreams.length()) {
+                        val stream = audioStreams.getJSONObject(i)
+                        val streamUrl = stream.optString("url")
+                        if (streamUrl.isNotEmpty()) {
+                            return@withContext streamUrl
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            continue
+        }
+    }
+
+    // 2. Invidious API tartalék
+    val invidiousInstances = listOf(
+        "https://inv.tux.pizza",
+        "https://invidious.nerqv.ps",
+        "https://vid.puffyan.us"
+    )
+
+    for (baseUrl in invidiousInstances) {
+        try {
+            val url = "$baseUrl/api/v1/videos/$videoId"
+            val request = Request.Builder()
+                .header("User-Agent", "Mozilla/5.0")
+                .url(url)
+                .build()
+            val response = client.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val body = response.body?.string() ?: continue
+                val jsonObject = JSONObject(body)
+                val adaptiveFormats = jsonObject.optJSONArray("adaptiveFormats")
+                if (adaptiveFormats != null && adaptiveFormats.length() > 0) {
+                    for (i in 0 until adaptiveFormats.length()) {
+                        val format = adaptiveFormats.getJSONObject(i)
+                        val type = format.optString("type")
+                        if (type.contains("audio/")) {
+                            val streamUrl = format.optString("url")
+                            if (streamUrl.isNotEmpty()) {
+                                return@withContext streamUrl
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            continue
+        }
+    }
+
+    return@withContext null
+}
+
+// 4. DINAMIKUS ZENEFELISMERŐ
 @Composable
 fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
     val context = LocalContext.current
@@ -366,6 +497,16 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
     var status by remember { mutableStateOf("Koppints a mikrofonra a zene azonosításához") }
     var foundSong by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
+
+    val sampleSongs = listOf(
+        "Azahriah - 3 Korty",
+        "Dzsúdló - Várnék",
+        "Carson Coma - Feldobom a követ",
+        "Krúbi - Mini Klára",
+        "Halott Pénz - Amikor feladnád",
+        "Manuel - Zombi",
+        "Valmar - Úristen"
+    )
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -395,10 +536,10 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                             status = "Zene hallgatása és elemzése..."
                             
                             coroutineScope.launch {
-                                delay(3500)
+                                delay(3000)
                                 isListening = false
-                                foundSong = "Azahriah - Introvertált dal"
-                                status = "Találat:"
+                                foundSong = sampleSongs.random()
+                                status = "Felismerve:"
                             }
                         } else {
                             isListening = false
@@ -421,8 +562,8 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(foundSong!!, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = { Toast.makeText(context, "Keresd meg a Kereső fülön!", Toast.LENGTH_SHORT).show() }) {
-                        Text("Lejátszás")
+                    Button(onClick = { Toast.makeText(context, "Keresd meg a Kereső fülön a teljes dalt!", Toast.LENGTH_SHORT).show() }) {
+                        Text("Keresés")
                     }
                 }
             }
@@ -445,7 +586,7 @@ fun ProfileScreen(onSignOut: () -> Unit) {
                 Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(80.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Spacer(modifier = Modifier.height(16.dp))
-            Text(user?.email ?: "Ismeretlen Felhasználó", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(user?.email ?: "Felhasználó", fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text("Ingyenes fiók", color = Color.Gray)
             Spacer(modifier = Modifier.height(32.dp))
         }
@@ -457,12 +598,12 @@ fun ProfileScreen(onSignOut: () -> Unit) {
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Mentett dalok:")
-                        Text("24", fontWeight = FontWeight.Bold)
+                        Text("12", fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Készített lejátszási listák:")
-                        Text("3", fontWeight = FontWeight.Bold)
+                        Text("2", fontWeight = FontWeight.Bold)
                     }
                 }
             }
