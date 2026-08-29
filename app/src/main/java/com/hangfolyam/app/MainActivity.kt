@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.graphics.painter.ColorPainter
 
 // ========== ADATMODELL ==========
+
 data class Song(
     val title: String,
     val artist: String,
@@ -41,6 +42,7 @@ data class Song(
 )
 
 // ========== FŐ AKTIVITÁS ==========
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,7 +53,7 @@ class MainActivity : ComponentActivity() {
                     color = Color(0xFF121212)
                 ) {
                     val playerViewModel: PlayerViewModel = viewModel()
-                    
+
                     // Teszt adat
                     val sampleSong = Song(
                         title = "Példa Dal Címe",
@@ -59,15 +61,15 @@ class MainActivity : ComponentActivity() {
                         coverUrl = "",
                         audioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
                     )
-                    
+
                     val sampleLyrics = """
                         Ez itt a dalszöveg első sora.
                         Itt jön a második sor.
-                        
+
                         Refrén:
                         Ez egy nagyon jó kis dal,
                         Szól a zene, senki nem zavar.
-                        
+
                         Itt pedig folytatódik a versszak,
                         Görgethetsz is lefelé, ha hosszú.
                     """.trimIndent()
@@ -84,6 +86,7 @@ class MainActivity : ComponentActivity() {
 }
 
 // ========== A LEJÁTSZÓ FELÜLET (UI) ==========
+
 @Composable
 fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: String) {
     val context = LocalContext.current
@@ -170,9 +173,9 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
         // Lejátszási csúszka (Slider)
         Slider(
             value = position,
-            onValueChange = { 
+            onValueChange = {
                 position = it
-                seeking = true 
+                seeking = true
             },
             onValueChangeFinished = {
                 // clamp a pozíciót, hogy ne legyen kívül eső érték
