@@ -33,7 +33,7 @@ jobs:
     - name: APK epitese
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-      run: gradle :app:assembleDebug
+      run: gradle :app:assembleDebug --info
 
     - name: Letoltes letrehozasa
       uses: actions/upload-artifact@v4
