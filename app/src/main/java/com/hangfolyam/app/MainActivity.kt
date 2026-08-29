@@ -243,7 +243,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         while (true) {
             if (exoPlayer != null && exoPlayer.isPlaying) {
                 currentPosition = exoPlayer.currentPosition.toFloat()
-                // Javítva: Long típusú coerceAtLeast használata (1L)
                 duration = exoPlayer.duration.coerceAtLeast(1L).toFloat()
                 isPlaying = true
             } else {
@@ -258,7 +257,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
             value = query,
             onValueChange = { query = it },
             label = { Text("Zene keresése (pl. rock, pop, piano)...") },
-            trailingIcon = {
+            trailingIcon: {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = {
                         isSearching = true
@@ -385,7 +384,11 @@ suspend fun searchJamendoSongs(query: String): List<Song> = withContext(Dispatch
     val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
     val url = "https://api.jamendo.com/v3.0/tracks/?client_id=56631bade&format=json&limit=15&namesearch=$encodedQuery"
     try {
-        val response = sharedHttpClient.newCall(Request.Builder().url(url).build()).execute()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .build()
+        val response = sharedHttpClient.newCall(request).execute()
         if (response.isSuccessful) {
             val results = JSONObject(response.body?.string() ?: "").optJSONArray("results") ?: return@withContext emptyList()
             val list = mutableListOf<Song>()
@@ -402,10 +405,11 @@ suspend fun searchJamendoSongs(query: String): List<Song> = withContext(Dispatch
         }
     } catch (_: Exception) {}
     
+    // Biztosan működő, nyilvános teszt/demó hangfájlok tartalékként
     return@withContext listOf(
-        Song("Acoustic Breeze", "Bensound", "https://www.bensound.com/bensound-music/bensound-acousticbreeze.mp3"),
-        Song("Sunny", "Bensound", "https://www.bensound.com/bensound-music/bensound-sunny.mp3"),
-        Song("Ukulele", "Bensound", "https://www.bensound.com/bensound-music/bensound-ukulele.mp3")
+        Song("Classical Piano Demo", "Public Domain", "https://upload.wikimedia.org/wikipedia/commons/b/b2/Beethoven_Moonlight_1st_movement.ogg"),
+        Song("Jazz Jam Demo", "Internet Archive", "https://archive.org/download/testmp3testfile/mp3threetest.mp3"),
+        Song("Acoustic Guitar Track", "FreeAudio", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
     )
 }
 
@@ -415,7 +419,11 @@ suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Di
         val cleanTitle = java.net.URLEncoder.encode(title.take(30).replace(Regex("\\(.*\\)"), "").trim(), "UTF-8")
         val url = "https://api.lyrics.ovh/v1/$cleanArtist/$cleanTitle"
         
-        val response = sharedHttpClient.newCall(Request.Builder().url(url).build()).execute()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0")
+            .build()
+        val response = sharedHttpClient.newCall(request).execute()
         if (response.isSuccessful) {
             val body = response.body?.string() ?: return@withContext null
             val json = JSONObject(body)
