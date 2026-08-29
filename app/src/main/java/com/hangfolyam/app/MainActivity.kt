@@ -256,13 +256,13 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("Zene keresése (pl. rock, pop, piano)...") },
+            label = { Text("Teljes zenék keresése (pl. piano, jazz, rock)...") },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = {
                         isSearching = true
                         coroutineScope.launch {
-                            searchResults = searchJamendoSongs(query)
+                            searchResults = searchArchiveSongs(query)
                             isSearching = false
                         }
                     }) {
@@ -380,35 +380,53 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-suspend fun searchJamendoSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
+suspend fun searchArchiveSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
     val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-    val url = "https://api.jamendo.com/v3.0/tracks/?client_id=56631bade&format=json&limit=15&namesearch=$encodedQuery"
+    val url = "https://archive.org/advancedsearch.php?q=mediatype:(audio)+AND+($encodedQuery)&fl[]=identifier,title,creator&rows=10&output=json"
     try {
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .build()
+        val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
         val response = sharedHttpClient.newCall(request).execute()
         if (response.isSuccessful) {
-            val results = JSONObject(response.body?.string() ?: "").optJSONArray("results") ?: return@withContext emptyList()
-            val list = mutableListOf<Song>()
-            for (i in 0 until results.length()) {
-                val item = results.getJSONObject(i)
-                val audioUrl = item.optString("audio")
-                val title = item.optString("name", "Ismeretlen dal")
-                val artist = item.optString("artist_name", "Ismeretlen előadó")
-                if (audioUrl.isNotEmpty()) {
-                    list.add(Song(title, artist, audioUrl))
+            val jsonResponse = JSONObject(response.body?.string() ?: "")
+            val docs = jsonResponse.optJSONObject("response")?.optJSONArray("docs")
+            if (docs != null) {
+                val list = mutableListOf<Song>()
+                for (i in 0 until docs.length()) {
+                    val doc = docs.getJSONObject(i)
+                    val identifier = doc.optString("identifier")
+                    val title = doc.optString("title", "Ismeretlen dal")
+                    val artist = doc.optString("creator", "Ismeretlen előadó")
+                    if (identifier.isNotEmpty()) {
+                        val metaUrl = "https://archive.org/metadata/$identifier"
+                        try {
+                            val metaResponse = sharedHttpClient.newCall(Request.Builder().url(metaUrl).header("User-Agent", "Mozilla/5.0").build()).execute()
+                            if (metaResponse.isSuccessful) {
+                                val metaJson = JSONObject(metaResponse.body?.string() ?: "")
+                                val files = metaJson.optJSONArray("files")
+                                if (files != null) {
+                                    for (j in 0 until files.length()) {
+                                        val file = files.getJSONObject(j)
+                                        val name = file.optString("name")
+                                        if (name.endsWith(".mp3", ignoreCase = true) || name.endsWith(".ogg", ignoreCase = true)) {
+                                            val audioUrl = "https://archive.org/download/$identifier/$name"
+                                            list.add(Song(title, artist, audioUrl))
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
                 }
+                if (list.isNotEmpty()) return@withContext list
             }
-            if (list.isNotEmpty()) return@withContext list
         }
     } catch (_: Exception) {}
-    
+
     return@withContext listOf(
-        Song("Classical Piano Demo", "Public Domain", "https://upload.wikimedia.org/wikipedia/commons/b/b2/Beethoven_Moonlight_1st_movement.ogg"),
-        Song("Jazz Jam Demo", "Internet Archive", "https://archive.org/download/testmp3testfile/mp3threetest.mp3"),
-        Song("Acoustic Guitar Track", "FreeAudio", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
+        Song("Beethoven Moonlight Sonata", "Ludwig van Beethoven", "https://upload.wikimedia.org/wikipedia/commons/b/b2/Beethoven_Moonlight_1st_movement.ogg"),
+        Song("Test Audio Track 1", "Internet Archive", "https://archive.org/download/testmp3testfile/mp3threetest.mp3"),
+        Song("SoundHelix Full Song", "SoundHelix", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
     )
 }
 
