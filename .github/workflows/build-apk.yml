@@ -26,8 +26,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle
+      # Fixáljuk a Gradle verziót 8.5-re (kikapcsolt cache-sel a szerverhibák ellen)
+      - name: Setup Gradle 8.5
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+          cache-disabled: true
 
       - name: Allando keystore visszaallitasa a Secret-bol
         run: |
@@ -35,18 +39,7 @@ jobs:
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore || true
 
       - name: APK építése
-        run: |
-          GW=$(find . -maxdepth 5 -type f -name gradlew | head -n1 || true)
-          if [ -n "$GW" ]; then
-            echo "gradlew megtalalva itt: $GW"
-            GW_DIR=$(dirname "$GW")
-            chmod +x "$GW"
-            cd "$GW_DIR"
-            ./gradlew assembleDebug --no-daemon
-          else
-            echo "Nincs gradlew, rendszer-gradle használata..."
-            gradle assembleDebug --no-daemon
-          fi
+        run: gradle :app:assembleDebug --no-daemon
 
       - name: Upload APK
         if: always()
