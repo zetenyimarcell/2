@@ -1,6 +1,5 @@
 package com.hangfolyam.app
 
-import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,10 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 
@@ -37,33 +33,6 @@ data class Song(
     val coverUrl: String,
     val audioUrl: String
 )
-
-// ========== VIEWMODEL (Media3 Lejátszóhoz) ==========
-class PlayerViewModel : ViewModel() {
-    var player: ExoPlayer? = null
-        private set
-
-    fun initPlayer(context: Context) {
-        if (player == null) {
-            player = ExoPlayer.Builder(context).build()
-        }
-    }
-
-    fun playAudio(url: String) {
-        player?.let {
-            val mediaItem = MediaItem.fromUri(url)
-            it.setMediaItem(mediaItem)
-            it.prepare()
-            it.play()
-        }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        player?.release()
-        player = null
-    }
-}
 
 // ========== FŐ AKTIVITÁS ==========
 class MainActivity : ComponentActivity() {
@@ -81,7 +50,7 @@ class MainActivity : ComponentActivity() {
                     val sampleSong = Song(
                         title = "Példa Dal Címe",
                         artist = "Példa Előadó",
-                        coverUrl = "", // Üres esetén a Coil egy Unsplash képet tölt be (lásd lent)
+                        coverUrl = "",
                         audioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
                     )
                     
@@ -200,7 +169,7 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
                 player?.seekTo(position.toLong())
                 seeking = false
             },
-            valueRange = 0f..(if (duration > 0f) duration else 1f), // Megakadályozza az összeomlást ha a duration 0
+            valueRange = 0f..(if (duration > 0f) duration else 1f),
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
@@ -229,7 +198,7 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
 
         // Lejátszás vezérlő (Play/Pause)
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.CenterHorizontally,
             horizontalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -257,7 +226,7 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f) // Kitölti a maradék helyet az aljáig
+                .weight(1f)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xFF16221B))
                 .padding(16.dp)
