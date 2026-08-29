@@ -41,6 +41,14 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+
+private val sharedHttpClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
+        .build()
+}
 
 class MainActivity : ComponentActivity() {
     private var exoPlayer: ExoPlayer? = null
@@ -145,7 +153,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(12.dp))
-        
+
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
@@ -182,7 +190,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             Text(if (isSignUp) "Van már fiókod? Bejelentkezés" else "Nincs fiókod? Regisztráció")
         }
 
-        Divider(modifier = Modifier.padding(vertical = 12.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
         OutlinedButton(
             onClick = {
@@ -361,7 +369,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
 }
 
 suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
-    // Frissített és bővített aktív Piped szerverek listája
     val pipedInstances = listOf(
         "https://pipedapi.kavin.rocks",
         "https://pipedapi-libre.kavin.rocks",
@@ -370,11 +377,6 @@ suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.
         "https://pipedapi.adminforge.de",
         "https://api-piped.mha.fi"
     )
-
-    val client = OkHttpClient.Builder()
-        .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-        .build()
 
     val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
 
@@ -385,7 +387,7 @@ suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .url(url)
                 .build()
-            val response = client.newCall(request).execute()
+            val response = sharedHttpClient.newCall(request).execute()
 
             if (response.isSuccessful) {
                 val body = response.body?.string() ?: continue
@@ -423,11 +425,6 @@ suspend fun fetchAudioStreamUrl(videoId: String): String? = withContext(Dispatch
         "https://api-piped.mha.fi"
     )
 
-    val client = OkHttpClient.Builder()
-        .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-        .build()
-
     for (baseUrl in pipedInstances) {
         try {
             val url = "$baseUrl/streams/$videoId"
@@ -435,7 +432,7 @@ suspend fun fetchAudioStreamUrl(videoId: String): String? = withContext(Dispatch
                 .header("User-Agent", "Mozilla/5.0")
                 .url(url)
                 .build()
-            val response = client.newCall(request).execute()
+            val response = sharedHttpClient.newCall(request).execute()
 
             if (response.isSuccessful) {
                 val body = response.body?.string() ?: continue
@@ -508,7 +505,6 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                             coroutineScope.launch {
                                 delay(3000)
                                 isListening = false
-                                // Olyan dalt sorsol, ami nem egyezik meg az előzőleg találttal
                                 val availableSongs = sampleSongs.filter { it != foundSong }
                                 foundSong = availableSongs.randomOrNull() ?: sampleSongs.random()
                                 status = "Felismerve:"
@@ -567,7 +563,7 @@ fun ProfileScreen(onSignOut: () -> Unit) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Statisztikák", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Mentett dalok:")
                         Text("12", fontWeight = FontWeight.Bold)
