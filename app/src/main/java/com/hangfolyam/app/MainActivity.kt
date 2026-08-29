@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.painter.ColorPainter
 
 // ========== ADATMODELL ==========
 data class Song(
@@ -94,10 +95,10 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
     var isPlaying by remember { mutableStateOf(false) }
     var seeking by remember { mutableStateOf(false) }
 
-    // Lejátszó inicializálása induláskor
+    // Lejátszó inicializálása induláskor (NE auto-play)
     LaunchedEffect(Unit) {
         playerViewModel.initPlayer(context)
-        playerViewModel.playAudio(song.audioUrl)
+        // Nem indítjuk automatikusan a lejátszást - a felhasználó nyomja meg a Play gombot
     }
 
     // Lejátszási idő (csúszka) folyamatos frissítése
@@ -138,6 +139,8 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
             model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500" },
             contentDescription = "Album borító",
             contentScale = ContentScale.Crop,
+            placeholder = ColorPainter(Color.DarkGray),
+            error = ColorPainter(Color.LightGray),
             modifier = Modifier
                 .size(220.dp)
                 .shadow(16.dp, RoundedCornerShape(16.dp))
@@ -210,16 +213,24 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
             horizontalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth()
         ) {
+            // Ha a player még nem készült el, a gomb le van tiltva és mutatunk egy kis spinner-t
             IconButton(
                 onClick = {
                     if (player?.isPlaying == true) {
                         player.pause()
                         isPlaying = false
+                        playerViewModel.pauseAudio()
                     } else {
-                        player?.play()
-                        isPlaying = true
+                        // Ha még nincs inicializálva a player, próbáljuk újra inicializálni
+                        if (player == null) {
+                            playerViewModel.initPlayer(context)
+                        } else {
+                            playerViewModel.playAudio(song.audioUrl)
+                            isPlaying = true
+                        }
                     }
                 },
+                enabled = (player != null),
                 modifier = Modifier
                     .size(64.dp)
                     .clip(CircleShape)
@@ -229,6 +240,15 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
                     imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Play",
                     tint = Color.Black
+                )
+            }
+
+            if (player == null) {
+                Spacer(modifier = Modifier.width(12.dp))
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp
                 )
             }
         }
