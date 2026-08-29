@@ -30,8 +30,11 @@ jobs:
           distribution: 'temurin'
 
       # 3. Gradle környezet automatikus letöltése és beállítása
+     # 3. Gradle környezet beállítása (stabil 8.5-ös verzióval az AGP 8.2.0-hoz)
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
 
       # 4. Keystore fájl visszaállítása a Secrets-ből
       - name: Allando keystore visszaallitasa a Secret-bol
