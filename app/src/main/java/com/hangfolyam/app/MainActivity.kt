@@ -198,7 +198,7 @@ fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: Strin
 
         // Lejátszás vezérlő (Play/Pause)
         Row(
-            verticalAlignment = Alignment.CenterHorizontally,
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth()
         ) {
