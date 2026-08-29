@@ -1,13 +1,11 @@
 package com.hangfolyam.app
 
-import androidx.compose.foundation.shape.CircleShape
-import android.Manifest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -17,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
@@ -38,7 +37,6 @@ fun AppNavigation() {
     val auth = FirebaseAuth.getInstance()
     var currentUser by remember { mutableStateOf(auth.currentUser) }
 
-    // Ha a felhasználó nincs bejelentkezve, a bejelentkező képernyőt mutatjuk
     if (currentUser == null) {
         LoginScreen(onLoginSuccess = { currentUser = auth.currentUser })
     } else {
@@ -94,11 +92,15 @@ fun AppNavigation() {
     }
 }
 
-// 1. BEJELENTKEZÉS KÉPERNYŐ
+// FRESIÍTETT BEJELENTKEZÉS ÉS REGISZTRÁCIÓS KÉPERNYŐ
 @Composable
 fun LoginScreen(onLoginSuccess: () -> Unit) {
+    var isSignUp by remember { mutableStateOf(false) }
+    var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var phoneNumber by remember { mutableStateOf("") }
+    var isPhoneLogin by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
     Column(
@@ -107,35 +109,109 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
         verticalArrangement = Arrangement.Center
     ) {
         Text("Hangfolyam", fontSize = 32.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(32.dp))
-
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email cím") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Jelszó") },
-            modifier = Modifier.fillMaxWidth()
-        )
         Spacer(modifier = Modifier.height(24.dp))
 
-        Button(
-            onClick = {
-                if (email.isNotEmpty() && password.isNotEmpty()) {
-                    FirebaseAuth.getInstance().signInWithEmailAndPassword(email, password)
-                        .addOnSuccessListener { onLoginSuccess() }
-                        .addOnFailureListener { errorMessage = it.localizedMessage ?: "Hiba a bejelentkezés során" }
-                }
-            },
+        if (isPhoneLogin) {
+            // Telefonszámos bejelentkezés mező
+            OutlinedTextField(
+                value = phoneNumber,
+                onValueChange = { phoneNumber = it },
+                label = { Text("Telefonszám (+36...)") },
+                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = { /* SMS kód küldése Firebase Auth PhoneProvider-rel */ },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Kód küldése SMS-ben")
+            }
+        } else {
+            // Felhasználónév / Email és Jelszó mezők
+            if (isSignUp) {
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("Felhasználónév") },
+                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Email cím") },
+                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Jelszó") },
+                visualTransformation = PasswordVisualTransformation(),
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    if (email.isNotEmpty() && password.isNotEmpty()) {
+                        val auth = FirebaseAuth.getInstance()
+                        if (isSignUp) {
+                            auth.createUserWithEmailAndPassword(email, password)
+                                .addOnSuccessListener { onLoginSuccess() }
+                                .addOnFailureListener { errorMessage = it.localizedMessage ?: "Regisztrációs hiba" }
+                        } else {
+                            auth.signInWithEmailAndPassword(email, password)
+                                .addOnSuccessListener { onLoginSuccess() }
+                                .addOnFailureListener { errorMessage = it.localizedMessage ?: "Bejelentkezési hiba" }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (isSignUp) "Regisztráció" else "Bejelentkezés")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Nincs fiókod? / Van már fiókod? Váltó gomb
+        TextButton(onClick = { 
+            isSignUp = !isSignUp 
+            isPhoneLogin = false
+        }) {
+            Text(if (isSignUp) "Van már fiókod? Bejelentkezés" else "Nincs fiókod? Regisztráció")
+        }
+
+        Divider(modifier = Modifier.padding(vertical = 16.dp))
+
+        // Alternatív bejelentkezési opciók
+        OutlinedButton(
+            onClick = { /* Google Sign-In intent indítása */ },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Bejelentkezés")
+            Icon(Icons.Default.AccountCircle, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Bejelentkezés Google-fiókkal")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedButton(
+            onClick = { isPhoneLogin = !isPhoneLogin },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Phone, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(if (isPhoneLogin) "Vissza az emailes belépéshez" else "Bejelentkezés telefonszámmal")
         }
 
         if (errorMessage.isNotEmpty()) {
@@ -145,19 +221,16 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
     }
 }
 
-// 2. FŐOLDAL KÉPERNYŐ
 @Composable
 fun HomeScreen() {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Lejátszó & Ajánlott Zeneszámok", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Főoldal & Lejátszó", fontSize = 22.sp, fontWeight = FontWeight.Bold)
     }
 }
 
-// 3. KERESŐ KÉPERNYŐ
 @Composable
 fun SearchScreen() {
     var query by remember { mutableStateOf("") }
-
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         OutlinedTextField(
             value = query,
@@ -166,16 +239,12 @@ fun SearchScreen() {
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Keresési találatok...", color = Color.Gray)
     }
 }
 
-// 4. ZENEFELISMERŐ KÉPERNYŐ
 @Composable
 fun AudioRecognizerScreen() {
     var isListening by remember { mutableStateOf(false) }
-
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -185,34 +254,23 @@ fun AudioRecognizerScreen() {
             onClick = { isListening = !isListening },
             modifier = Modifier.size(120.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
         ) {
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = "Felismerés",
-                tint = Color.White,
-                modifier = Modifier.size(60.dp)
-            )
+            Icon(Icons.Default.Mic, contentDescription = null, tint = Color.White, modifier = Modifier.size(60.dp))
         }
         Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            if (isListening) "Hallgatás..." else "Koppints a zenefelismerés indításához",
-            fontSize = 18.sp
-        )
+        Text(if (isListening) "Hallgatás..." else "Koppints a zenefelismeréshez", fontSize = 18.sp)
     }
 }
 
-// 5. GYŰJTEMÉNYEK KÉPERNYŐ
 @Composable
 fun CollectionsScreen() {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Saját Gyűjtemények & Lejátszási Listák", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Saját Gyűjtemények", fontSize = 22.sp, fontWeight = FontWeight.Bold)
     }
 }
 
-// 6. PROFIL KÉPERNYŐ
 @Composable
 fun ProfileScreen(onSignOut: () -> Unit) {
     val user = FirebaseAuth.getInstance().currentUser
-
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
