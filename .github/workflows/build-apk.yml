@@ -1,43 +1,43 @@
 name: Nova APK Gyartas
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Kod lekerese
-      uses: actions/checkout@v4
+      - name: Kod lekerese
+        uses: actions/checkout@v4
 
-    - name: Java JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Gradle beallitasa
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: '8.6'
+      - name: Gradle beallitasa
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.6'
 
-    - name: Allando keystore visszaallitasa a Secret-bol
-      run: |
-        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore
-        ls -la app/nova-release.keystore
+      - name: Allando keystore visszaallitasa a Secret-bol
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore
+          ls -la app/nova-release.keystore
 
-    - name: SHA-1 kiirasa (ellenorzeshez)
-      run: |
-        echo "A KULCSOD ITT LESZ A KOVETKEZO SORBAN:"
-        keytool -list -v -keystore app/nova-release.keystore -alias nova-key -storepass "${{ secrets.KEYSTORE_PASSWORD }}" | grep "SHA1:"
+      - name: SHA-1 kiirasa (ellenorzeshez)
+        run: |
+          echo "A KULCSOD ITT LESZ A KOVETKEZO SORBAN:"
+          keytool -list -v -keystore app/nova-release.keystore -alias nova-key -storepass "${{ secrets.KEYSTORE_PASSWORD }}" | grep "SHA1:"
 
-    - name: APK epitese
-      env:
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-      run: gradle :app:assembleDebug --info --debug 2>&1 | tee build.log
+      - name: APK epitese
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: gradle :app:assembleDebug --info --debug 2>&1 | tee build.log
 
-   - name: Upload build log
-  if: failure()
-  uses: actions/upload-artifact@v4
-  with:
-    name: build-log
-    path: build.log
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
