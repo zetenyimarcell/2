@@ -31,6 +31,7 @@ jobs:
 
       - name: Allando keystore visszaallitasa a Secret-bol
         run: |
+          mkdir -p app
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore
           ls -la app/nova-release.keystore
 
@@ -47,18 +48,33 @@ jobs:
 
       - name: Show build outputs (debug)
         run: |
+          echo "Working directory: $(pwd)"
+          echo "Listing repository root"
+          ls -la || true
+          echo "Listing app directory"
+          ls -la app || true
           echo "Listing app/build directory"
           ls -la app/build || true
-          echo "Listing apk outputs"
+          echo "Listing apk outputs (recursive)"
           ls -R app/build/outputs || true
+          echo "Find any .apk files in repo"
+          find . -type f -name "*.apk" -print || true
+          echo "Find any .aab files in repo"
+          find . -type f -name "*.aab" -print || true
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-apks
-          path: app/build/outputs/**/*.apk
+          path: |
+            app/build/outputs/**/*.apk
+            **/app/build/outputs/**/*.apk
+            app/build/outputs/**/*.aab
+            **/app/build/outputs/**/*
 
       - name: Upload build log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
