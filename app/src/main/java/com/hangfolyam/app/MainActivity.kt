@@ -233,19 +233,18 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     var activeSongIndex by remember { mutableStateOf<Int?>(null) }
     var currentLyrics by remember { mutableStateOf<String?>(null) }
     
-    // Lejátszó állapota (Csúszkához és Play/Pause-hoz)
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableStateOf(0f) }
     var duration by remember { mutableStateOf(1f) }
 
     val coroutineScope = rememberCoroutineScope()
 
-    // Pozíció frissítése a csúszkához
     LaunchedEffect(exoPlayer) {
         while (true) {
             if (exoPlayer != null && exoPlayer.isPlaying) {
                 currentPosition = exoPlayer.currentPosition.toFloat()
-                duration = exoPlayer.duration.coerceAtLeast(1f).toFloat()
+                // Javítva: Long típusú coerceAtLeast használata (1L)
+                duration = exoPlayer.duration.coerceAtLeast(1L).toFloat()
                 isPlaying = true
             } else {
                 isPlaying = false
@@ -277,7 +276,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Aktív Zene Kezelő Panel (Csúszka, Play/Pause, Következő, Dalszöveg)
         if (activeSongIndex != null && searchResults.isNotEmpty()) {
             val song = searchResults[activeSongIndex!!]
             Card(
@@ -288,7 +286,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                     Text("Most szól: ${song.title} - ${song.artist}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, maxLines = 1)
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // Csúszka (Seekbar)
                     Slider(
                         value = currentPosition,
                         onValueChange = { newVal ->
@@ -299,7 +296,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                         modifier = Modifier.fillMaxWidth().height(20.dp)
                     )
 
-                    // Vezérlő gombok (Előző, Play/Pause, Következő)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,
@@ -320,7 +316,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                         }
                         Spacer(modifier = Modifier.width(24.dp))
                         IconButton(onClick = {
-                            // Következő zene a listában
                             val nextIndex = (activeSongIndex!! + 1) % searchResults.size
                             activeSongIndex = nextIndex
                             val nextSong = searchResults[nextIndex]
@@ -340,7 +335,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
-                    // Dalszöveg doboz (görgethető)
                     Box(modifier = Modifier.height(80.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
                         Text(currentLyrics ?: "Dalszöveg betöltése...", fontSize = 12.sp, color = Color.LightGray)
                     }
@@ -387,7 +381,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-// Ingyenes Jamendo zene keresés (garantáltan működő MP3 linkekkel)
 suspend fun searchJamendoSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
     val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
     val url = "https://api.jamendo.com/v3.0/tracks/?client_id=56631bade&format=json&limit=15&namesearch=$encodedQuery"
@@ -405,11 +398,10 @@ suspend fun searchJamendoSongs(query: String): List<Song> = withContext(Dispatch
                     list.add(Song(title, artist, audioUrl))
                 }
             }
-            return@withContext list
+            if (list.isNotEmpty()) return@withContext list
         }
     } catch (_: Exception) {}
     
-    // Ha semmit sem talált a keresésre, adjunk vissza néhány ingyenes alap dalt, hogy ne legyen üres a lista
     return@withContext listOf(
         Song("Acoustic Breeze", "Bensound", "https://www.bensound.com/bensound-music/bensound-acousticbreeze.mp3"),
         Song("Sunny", "Bensound", "https://www.bensound.com/bensound-music/bensound-sunny.mp3"),
@@ -417,7 +409,6 @@ suspend fun searchJamendoSongs(query: String): List<Song> = withContext(Dispatch
     )
 }
 
-// Lyrics.ovh API hívás a dalszöveg lekéréséhez
 suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
     try {
         val cleanArtist = java.net.URLEncoder.encode(artist.take(20), "UTF-8")
