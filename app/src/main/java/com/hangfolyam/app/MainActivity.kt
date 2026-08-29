@@ -37,6 +37,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import com.google.firebase.auth.FirebaseAuth
@@ -50,14 +52,14 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+// Megnövelt hálózati időkorlát a teljes dalok stabil letöltéséhez
 private val sharedHttpClient: OkHttpClient by lazy {
     OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
 }
 
-// TV specifikus fókusz módosító a távirányítós navigációhoz
 fun Modifier.tvFocusable(
     shape: Shape = RoundedCornerShape(8.dp),
     onClick: () -> Unit
@@ -82,7 +84,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        exoPlayer = ExoPlayer.Builder(this).build()
+        
+        // Zenei fókusz beállítása a teljes lejátszáshoz
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+
+        exoPlayer = ExoPlayer.Builder(this)
+            .setAudioAttributes(audioAttributes, true)
+            .setHandleAudioBecomingNoisy(true)
+            .build()
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
@@ -109,7 +121,6 @@ fun AppNavigation(exoPlayer: ExoPlayer?) {
         LoginScreen(onLoginSuccess = { currentUser = auth.currentUser })
     } else {
         Row(modifier = Modifier.fillMaxSize()) {
-            // TV-re optimalizált oldalsó navigáció
             NavigationRail(
                 modifier = Modifier.fillMaxHeight(),
                 containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -284,7 +295,7 @@ fun HomeScreen(exoPlayer: ExoPlayer?) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
-                            .tvFocusable { Toast.makeText(context, "Keresd meg a Keresőben a lejátszáshoz!", Toast.LENGTH_SHORT).show() }
+                            .tvFocusable { Toast.makeText(context, "Keresd meg a Keresőben a teljes dalt!", Toast.LENGTH_SHORT).show() }
                             .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -316,7 +327,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Keresés...") },
+                label = { Text("Keresés teljes dalokra...") },
                 modifier = Modifier.weight(1f).focusable(),
                 singleLine = true
             )
@@ -354,7 +365,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                             .tvFocusable {
                                 if (loadingVideoId != null) return@tvFocusable
                                 loadingVideoId = song.videoId
-                                Toast.makeText(context, "Dal betöltése...", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Teljes dal betöltése...", Toast.LENGTH_SHORT).show()
                                 coroutineScope.launch {
                                     val streamUrl = fetchAudioStreamUrl(song.videoId)
                                     loadingVideoId = null
