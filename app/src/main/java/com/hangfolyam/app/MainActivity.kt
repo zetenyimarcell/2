@@ -1,284 +1,227 @@
 package com.hangfolyam.app
 
+import android.Manifest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.painter.ColorPainter
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-// ========== ADATMODELL ==========
-
-data class Song(
-    val title: String,
-    val artist: String,
-    val coverUrl: String,
-    val audioUrl: String
-)
-
-// ========== FŐ AKTIVITÁS ==========
+import com.google.firebase.auth.FirebaseAuth
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF121212)
-                ) {
-                    val playerViewModel: PlayerViewModel = viewModel()
+                AppNavigation()
+            }
+        }
+    }
+}
 
-                    // Teszt adat
-                    val sampleSong = Song(
-                        title = "Példa Dal Címe",
-                        artist = "Példa Előadó",
-                        coverUrl = "",
-                        audioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+@Composable
+fun AppNavigation() {
+    var selectedTab by remember { mutableStateOf(0) }
+    val auth = FirebaseAuth.getInstance()
+    var currentUser by remember { mutableStateOf(auth.currentUser) }
+
+    // Ha a felhasználó nincs bejelentkezve, a bejelentkező képernyőt mutatjuk
+    if (currentUser == null) {
+        LoginScreen(onLoginSuccess = { currentUser = auth.currentUser })
+    } else {
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        icon = { Icon(Icons.Default.Home, contentDescription = "Főoldal") },
+                        label = { Text("Főoldal") }
                     )
-
-                    val sampleLyrics = """
-                        Ez itt a dalszöveg első sora.
-                        Itt jön a második sor.
-
-                        Refrén:
-                        Ez egy nagyon jó kis dal,
-                        Szól a zene, senki nem zavar.
-
-                        Itt pedig folytatódik a versszak,
-                        Görgethetsz is lefelé, ha hosszú.
-                    """.trimIndent()
-
-                    FullPlayerScreen(
-                        song = sampleSong,
-                        playerViewModel = playerViewModel,
-                        lyrics = sampleLyrics
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        icon = { Icon(Icons.Default.Search, contentDescription = "Kereső") },
+                        label = { Text("Kereső") }
                     )
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        icon = { Icon(Icons.Default.Mic, contentDescription = "Felismerő") },
+                        label = { Text("Felismerő") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        icon = { Icon(Icons.Default.LibraryMusic, contentDescription = "Gyűjtemények") },
+                        label = { Text("Gyűjtemények") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 4,
+                        onClick = { selectedTab = 4 },
+                        icon = { Icon(Icons.Default.Person, contentDescription = "Profil") },
+                        label = { Text("Profil") }
+                    )
+                }
+            }
+        ) { innerPadding ->
+            Box(modifier = Modifier.padding(innerPadding)) {
+                when (selectedTab) {
+                    0 -> HomeScreen()
+                    1 -> SearchScreen()
+                    2 -> AudioRecognizerScreen()
+                    3 -> CollectionsScreen()
+                    4 -> ProfileScreen(onSignOut = {
+                        auth.signOut()
+                        currentUser = null
+                    })
                 }
             }
         }
     }
 }
 
-// ========== A LEJÁTSZÓ FELÜLET (UI) ==========
-
+// 1. BEJELENTKEZÉS KÉPERNYŐ
 @Composable
-fun FullPlayerScreen(song: Song, playerViewModel: PlayerViewModel, lyrics: String) {
-    val context = LocalContext.current
-    val player = playerViewModel.player
+fun LoginScreen(onLoginSuccess: () -> Unit) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
 
-    // Állapotok a csúszkához és a gombokhoz
-    var position by remember { mutableFloatStateOf(0f) }
-    var duration by remember { mutableFloatStateOf(0f) }
-    var isPlaying by remember { mutableStateOf(false) }
-    var seeking by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Hangfolyam", fontSize = 32.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(32.dp))
 
-    // Lejátszó inicializálása induláskor (NE auto-play)
-    LaunchedEffect(Unit) {
-        playerViewModel.initPlayer(context)
-        // Nem indítjuk automatikusan a lejátszást - a felhasználó nyomja meg a Play gombot
-    }
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email cím") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
-    // Lejátszási idő (csúszka) folyamatos frissítése
-    LaunchedEffect(player) {
-        while (isActive) {
-            player?.let {
-                if (!seeking) {
-                    position = it.currentPosition.toFloat()
-                    duration = it.duration.coerceAtLeast(0).toFloat()
-                    isPlaying = it.isPlaying
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Jelszó") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                if (email.isNotEmpty() && password.isNotEmpty()) {
+                    FirebaseAuth.getInstance().signInWithEmailAndPassword(email, password)
+                        .addOnSuccessListener { onLoginSuccess() }
+                        .addOnFailureListener { errorMessage = it.localizedMessage ?: "Hiba a bejelentkezés során" }
                 }
-            }
-            delay(500) // Fél másodpercenként frissít
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Bejelentkezés")
+        }
+
+        if (errorMessage.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(errorMessage, color = MaterialTheme.colorScheme.error)
         }
     }
+}
 
-    // Fő elrendezés (görgethetővé téve)
+// 2. FŐOLDAL KÉPERNYŐ
+@Composable
+fun HomeScreen() {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Lejátszó & Ajánlott Zeneszámok", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+// 3. KERESŐ KÉPERNYŐ
+@Composable
+fun SearchScreen() {
+    var query by remember { mutableStateOf("") }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = { Text("Keresés előadók, számok alapján...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Keresési találatok...", color = Color.Gray)
+    }
+}
+
+// 4. ZENEFELISMERŐ KÉPERNYŐ
+@Composable
+fun AudioRecognizerScreen() {
+    var isListening by remember { mutableStateOf(false) }
+
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF121212))
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        IconButton(
+            onClick = { isListening = !isListening },
+            modifier = Modifier.size(120.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Mic,
+                contentDescription = "Felismerés",
+                tint = Color.White,
+                modifier = Modifier.size(60.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            if (isListening) "Hallgatás..." else "Koppints a zenefelismerés indításához",
+            fontSize = 18.sp
+        )
+    }
+}
+
+// 5. GYŰJTEMÉNYEK KÉPERNYŐ
+@Composable
+fun CollectionsScreen() {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Saját Gyűjtemények & Lejátszási Listák", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+// 6. PROFIL KÉPERNYŐ
+@Composable
+fun ProfileScreen(onSignOut: () -> Unit) {
+    val user = FirebaseAuth.getInstance().currentUser
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // "BottomSheet" drag handle vonal felül
-        Box(
-            modifier = Modifier
-                .width(40.dp)
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(Color.DarkGray)
-        )
+        Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(100.dp))
         Spacer(modifier = Modifier.height(16.dp))
-
-        // Borítókép
-        AsyncImage(
-            model = song.coverUrl.ifEmpty { "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500" },
-            contentDescription = "Album borító",
-            contentScale = ContentScale.Crop,
-            placeholder = ColorPainter(Color.DarkGray),
-            error = ColorPainter(Color.LightGray),
-            modifier = Modifier
-                .size(220.dp)
-                .shadow(16.dp, RoundedCornerShape(16.dp))
-                .clip(RoundedCornerShape(16.dp))
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Cím és Előadó
-        Text(
-            text = song.title,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = song.artist,
-            fontSize = 16.sp,
-            color = Color.Gray,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Lejátszási csúszka (Slider)
-        Slider(
-            value = position,
-            onValueChange = {
-                position = it
-                seeking = true
-            },
-            onValueChangeFinished = {
-                // clamp a pozíciót, hogy ne legyen kívül eső érték
-                val seekPos = position.coerceIn(0f, if (duration > 0f) duration else 1f)
-                player?.seekTo(seekPos.toLong())
-                seeking = false
-            },
-            valueRange = 0f..(if (duration > 0f) duration else 1f),
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = Color.DarkGray
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        // Idő formázó segédfüggvény
-        val formatTime = { ms: Float ->
-            val totalSeconds = (ms / 1000).toInt().coerceAtLeast(0)
-            val minutes = totalSeconds / 60
-            val seconds = totalSeconds % 60
-            String.format("%d:%02d", minutes, seconds)
-        }
-
-        // Időkijelzés (Jelenlegi idő / Teljes idő)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(formatTime(position), color = Color.Gray, fontSize = 12.sp)
-            Text(formatTime(duration), color = Color.Gray, fontSize = 12.sp)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Lejátszás vezérlő (Play/Pause)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            // Ha a player még nem készült el, a gomb le van tiltva és mutatunk egy kis spinner-t
-            IconButton(
-                onClick = {
-                    if (player?.isPlaying == true) {
-                        player.pause()
-                        isPlaying = false
-                        playerViewModel.pauseAudio()
-                    } else {
-                        // Ha még nincs inicializálva a player, próbáljuk újra inicializálni
-                        if (player == null) {
-                            playerViewModel.initPlayer(context)
-                        } else {
-                            playerViewModel.playAudio(song.audioUrl)
-                            isPlaying = true
-                        }
-                    }
-                },
-                enabled = (player != null),
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-            ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = Color.Black
-                )
-            }
-
-            if (player == null) {
-                Spacer(modifier = Modifier.width(12.dp))
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    strokeWidth = 2.dp
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Dalszöveg nézet
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF16221B))
-                .padding(16.dp)
-        ) {
-            Column {
-                Text(
-                    text = "Dalszöveg",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = lyrics,
-                    color = Color.LightGray,
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp
-                )
-            }
+        Text(user?.email ?: "Felhasználó", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(onClick = onSignOut) {
+            Text("Kijelentkezés")
         }
     }
 }
