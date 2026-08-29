@@ -191,10 +191,10 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                         val provider = OAuthProvider.newBuilder("google.com").build()
                         auth.startActivityForSignInWithProvider(activity, provider)
                             .addOnSuccessListener { onLoginSuccess() }
-                            .addOnFailureListener { e -> 
-                                errorMessage = "Google belépés hiba: Kapcsold be a Google-t a Firebase Console-ban!"
+                            .addOnFailureListener { _ -> 
+                                errorMessage = "Google belépés hiba: Ellenőrizd a Firebase konzolt!"
                             }
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         errorMessage = "Sikertelen indítás."
                     }
                 }
@@ -271,7 +271,7 @@ fun HomeScreen(exoPlayer: ExoPlayer?) {
 
 data class Song(val title: String, val uploader: String, val videoId: String)
 
-// 3. KERESŐ (TELJES HOSSZÚSÁGÚ DALOKKAL + TARTALÉK SZERVEREK)
+// 3. KERESŐ
 @Composable
 fun SearchScreen(exoPlayer: ExoPlayer?) {
     val context = LocalContext.current
@@ -296,7 +296,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                         coroutineScope.launch {
                             searchResults = fetchFullSongs(query)
                             if (searchResults.isEmpty()) {
-                                errorMessage = "Nincs találat erre a keresésre."
+                                errorMessage = "Nincs találat. Próbálj másik kifejezést!"
                             }
                             isSearching = false
                         }
@@ -308,9 +308,13 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         Spacer(modifier = Modifier.height(16.dp))
 
         if (isSearching) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
         } else if (errorMessage.isNotEmpty()) {
-            Text(errorMessage, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(errorMessage, color = MaterialTheme.colorScheme.error)
+            }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(searchResults) { song ->
@@ -357,16 +361,19 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
 }
 
 suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
+    // Frissített és bővített aktív Piped szerverek listája
     val pipedInstances = listOf(
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi-libre.kavin.rocks",
+        "https://pipedapi.tokhmi.xyz",
+        "https://pipedapi.nosebs.ru",
         "https://pipedapi.adminforge.de",
-        "https://api.piped.yt",
-        "https://pipedapi.mha.fi",
-        "https://pipedapi.kavin.rocks"
+        "https://api-piped.mha.fi"
     )
 
     val client = OkHttpClient.Builder()
-        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
     val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
@@ -375,7 +382,7 @@ suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.
         try {
             val url = "$baseUrl/search?q=$encodedQuery&filter=music_songs"
             val request = Request.Builder()
-                .header("User-Agent", "Mozilla/5.0")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .url(url)
                 .build()
             val response = client.newCall(request).execute()
@@ -399,7 +406,7 @@ suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.
                 }
                 if (list.isNotEmpty()) return@withContext list
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             continue
         }
     }
@@ -408,18 +415,19 @@ suspend fun fetchFullSongs(query: String): List<Song> = withContext(Dispatchers.
 
 suspend fun fetchAudioStreamUrl(videoId: String): String? = withContext(Dispatchers.IO) {
     val pipedInstances = listOf(
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi-libre.kavin.rocks",
+        "https://pipedapi.tokhmi.xyz",
+        "https://pipedapi.nosebs.ru",
         "https://pipedapi.adminforge.de",
-        "https://api.piped.yt",
-        "https://pipedapi.mha.fi",
-        "https://pipedapi.kavin.rocks"
+        "https://api-piped.mha.fi"
     )
 
     val client = OkHttpClient.Builder()
-        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
-    // 1. Piped API lekérés
     for (baseUrl in pipedInstances) {
         try {
             val url = "$baseUrl/streams/$videoId"
@@ -443,53 +451,14 @@ suspend fun fetchAudioStreamUrl(videoId: String): String? = withContext(Dispatch
                     }
                 }
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             continue
         }
     }
-
-    // 2. Invidious API tartalék
-    val invidiousInstances = listOf(
-        "https://inv.tux.pizza",
-        "https://invidious.nerqv.ps",
-        "https://vid.puffyan.us"
-    )
-
-    for (baseUrl in invidiousInstances) {
-        try {
-            val url = "$baseUrl/api/v1/videos/$videoId"
-            val request = Request.Builder()
-                .header("User-Agent", "Mozilla/5.0")
-                .url(url)
-                .build()
-            val response = client.newCall(request).execute()
-
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: continue
-                val jsonObject = JSONObject(body)
-                val adaptiveFormats = jsonObject.optJSONArray("adaptiveFormats")
-                if (adaptiveFormats != null && adaptiveFormats.length() > 0) {
-                    for (i in 0 until adaptiveFormats.length()) {
-                        val format = adaptiveFormats.getJSONObject(i)
-                        val type = format.optString("type")
-                        if (type.contains("audio/")) {
-                            val streamUrl = format.optString("url")
-                            if (streamUrl.isNotEmpty()) {
-                                return@withContext streamUrl
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            continue
-        }
-    }
-
     return@withContext null
 }
 
-// 4. DINAMIKUS ZENEFELISMERŐ
+// 4. DINAMIKUS ZENEFELISMERŐ (ISMÉTLÉSMENTESÍTVE)
 @Composable
 fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
     val context = LocalContext.current
@@ -505,7 +474,8 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
         "Krúbi - Mini Klára",
         "Halott Pénz - Amikor feladnád",
         "Manuel - Zombi",
-        "Valmar - Úristen"
+        "Valmar - Úristen",
+        "T.Danny - Rebels"
     )
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -538,7 +508,9 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                             coroutineScope.launch {
                                 delay(3000)
                                 isListening = false
-                                foundSong = sampleSongs.random()
+                                // Olyan dalt sorsol, ami nem egyezik meg az előzőleg találttal
+                                val availableSongs = sampleSongs.filter { it != foundSong }
+                                foundSong = availableSongs.randomOrNull() ?: sampleSongs.random()
                                 status = "Felismerve:"
                             }
                         } else {
