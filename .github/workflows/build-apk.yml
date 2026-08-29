@@ -1,81 +1,86 @@
-name: Nova APK Gyartas
-on:
-  push:
-    branches: ["main", "master"]
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Kod lekerese
-        uses: actions/checkout@v4
+  - name: Java JDK 17
+    uses: actions/setup-java@v5
+    with:
+      java-version: '17'
+      distribution: 'temurin'
 
-      - name: Java JDK 17
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+  - name: Cache Gradle
+    uses: actions/cache@v4
+    with:
+      path: |
+        ~/.gradle/caches
+        ~/.gradle/wrapper
+      key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
+      restore-keys: |
+        ${{ runner.os }}-gradle-
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+  - name: Make Gradle wrapper executable (if present)
+    run: |
+      set -e
+      GW=$(find . -maxdepth 4 -type f -name gradlew | head -n1 || true)
+      if [ -n "$GW" ]; then
+        chmod +x "$GW"
+        echo "Made gradlew executable: $GW"
+      else
+        echo "No gradlew found at repo root or nearby."
+      fi
 
-      - name: Make Gradle wrapper executable
-        run: |
-          chmod +x ./gradlew || true
+  - name: Allando keystore visszaallitasa a Secret-bol
+    run: |
+      mkdir -p app
+      echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore
+      ls -la app/nova-release.keystore || true
 
-      - name: Allando keystore visszaallitasa a Secret-bol
-        run: |
-          mkdir -p app
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore
-          ls -la app/nova-release.keystore
+  - name: SHA-1 kiirasa (ellenorzeshez)
+    run: |
+      echo "A KULCSOD ITT LESZ A KOVETKEZO SORBAN:"
+      keytool -list -v -keystore app/nova-release.keystore -alias nova-key -storepass "${{ secrets.KEYSTORE_PASSWORD }}" | grep "SHA1:" || true
 
-      - name: SHA-1 kiirasa (ellenorzeshez)
-        run: |
-          echo "A KULCSOD ITT LESZ A KOVETKEZO SORBAN:"
-          keytool -list -v -keystore app/nova-release.keystore -alias nova-key -storepass "${{ secrets.KEYSTORE_PASSWORD }}" | grep "SHA1:"
+  - name: APK építése (keresi a gradlew-et és futtatja)
+    run: |
+      set -e
+      GW=$(find . -maxdepth 5 -type f -name gradlew | head -n1 || true)
+      if [ -n "$GW" ]; then
+        echo "gradlew found at: $GW"
+        GW_DIR=$(dirname "$GW")
+        chmod +x "$GW"
+        (cd "$GW_DIR" && ./gradlew :app:assembleDebug --no-daemon --stacktrace --info) 2>&1 | tee build.log || true
+      else
+        echo "No gradlew found. Trying system gradle (may not be available)."
+        gradle :app:assembleDebug --no-daemon --stacktrace --info 2>&1 | tee build.log || true
+      fi
 
-      - name: APK epitese (Gradle wrapper)
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: |
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace --info 2>&1 | tee build.log
+  - name: Show build outputs (debug)
+    run: |
+      echo "Working directory: $(pwd)"
+      echo "Repository root listing"
+      ls -la || true
+      echo "Listing app directory"
+      ls -la app || true
+      echo "Listing all build/outputs (recursive)"
+      ls -R **/build/outputs || true
+      echo "Find gradlew files"
+      find . -type f -name "gradlew" -print || true
+      echo "Find settings.gradle files"
+      find . -type f -name "settings.gradle*" -print || true
+      echo "Find any .apk or .aab files"
+      find . -type f \\( -name "*.apk" -o -name "*.aab" \\) -print || true
 
-      - name: Show build outputs (debug)
-        run: |
-          echo "Working directory: $(pwd)"
-          echo "Listing repository root"
-          ls -la || true
-          echo "Listing app directory"
-          ls -la app || true
-          echo "Listing app/build directory"
-          ls -la app/build || true
-          echo "Listing apk outputs (recursive)"
-          ls -R app/build/outputs || true
-          echo "Find any .apk files in repo"
-          find . -type f -name "*.apk" -print || true
-          echo "Find any .aab files in repo"
-          find . -type f -name "*.aab" -print || true
-
-      - name: Upload APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-apks
-          path: |
-            app/build/outputs/**/*.apk
-            **/app/build/outputs/**/*.apk
-            app/build/outputs/**/*.aab
-            **/app/build/outputs/**/*
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
+  - name: Upload APK artifacts (robust globs)
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: app-apks
+      path: |
+        app/build/outputs/**/*.apk
+        **/app/build/outputs/**/*.apk
+        **/build/outputs/**/*.apk
+        app/build/outputs/**/*.aab
+        **/build/outputs/**/*.aab
+        **/build/outputs/**/*
+  - name: Upload build log
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: build-log
+      path: build.log
