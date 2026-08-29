@@ -1,6 +1,5 @@
 name: Build Android APK
 
-# Mikor induljon el az építés?
 on:
   push:
     branches:
@@ -18,62 +17,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Kód letöltése a virtuális gépre
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Java környezet beállítása
       - name: Java JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-      # 3. Gradle környezet automatikus letöltése és beállítása
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.5'
 
-      # 4. Keystore fájl visszaállítása a Secrets-ből
       - name: Allando keystore visszaallitasa a Secret-bol
         run: |
           mkdir -p app
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore
-          ls -la app/nova-release.keystore || true
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/nova-release.keystore || true
 
-      # 5. SHA-1 kulcs kiírása
-      - name: SHA-1 kiirasa (ellenorzeshez)
-        run: |
-          echo "A KULCSOD ITT LESZ A KOVETKEZO SORBAN:"
-          keytool -list -v -keystore app/nova-release.keystore -alias nova-key -storepass "${{ secrets.KEYSTORE_PASSWORD }}" | grep "SHA1:" || true
-
-      # 6. APK építése
       - name: APK építése
         run: |
-          set -e
-          GW=$(find . -maxdepth 5 -type f -name gradlew | head -n1 || true)
-          if [ -n "$GW" ]; then
-            echo "gradlew found at: $GW"
-            GW_DIR=$(dirname "$GW")
-            chmod +x "$GW"
-            (cd "$GW_DIR" && ./gradlew :app:assembleDebug --no-daemon --stacktrace --info) 2>&1 | tee build.log
-          else
-            echo "No gradlew found. Using setup-gradle runner."
-            gradle :app:assembleDebug --no-daemon --stacktrace --info 2>&1 | tee build.log
-          fi
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      # 7. Mappák kilistázása hibakereséshez
-      - name: Show build outputs (debug)
-        if: always()
-        run: |
-          echo "Working directory: $(pwd)"
-          ls -la || true
-          ls -R app/build/outputs || true
-
-      # 8. KIZÁRÓLAG az APK feltöltése
       - name: Upload APK
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Hangfolyam-App-Debug
-          path: '**/*.apk'
+          path: app/build/outputs/apk/debug/app-debug.apk
