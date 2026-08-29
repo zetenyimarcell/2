@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
 }
+
 android {
     namespace = "com.hangfolyam.app"
     compileSdk = 34
