@@ -229,7 +229,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
             Text("Nincs fiókod? Regisztráció (Vault)")
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.DarkGray)
+        Divider(modifier = Modifier.padding(vertical = 12.dp), color = Color.DarkGray)
         
         OutlinedButton(
             onClick = {
@@ -373,7 +373,7 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                         1 -> Icon(Icons.Default.AttachFile, contentDescription = null, tint = Color(0xFFE57373), modifier = Modifier.size(40.dp))
                         2 -> Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(40.dp))
                         3 -> DeadboltIcon()
-                        else -> BankVaultIcon(entropy) // Átadott entrópia az animációhoz
+                        else -> BankVaultIcon(entropy)
                     }
                 }
 
@@ -429,9 +429,8 @@ fun DeadboltIcon() {
 
 @Composable
 fun BankVaultIcon(entropy: Double) {
-    // Forgó animáció a tárcsához
     val rotationAngle by animateFloatAsState(
-        targetValue = (entropy * 18).toFloat(), // Gépelésre gyorsan forog
+        targetValue = (entropy * 18).toFloat(),
         animationSpec = tween(600, easing = FastOutSlowInEasing)
     )
     
@@ -506,7 +505,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         coroutineScope.launch {
             var playUrl = ""
             
-            // 1. Esély: Invidious API szerverek (sokkal stabilabbak zene kinyerésre)
             val invidiousInstances = listOf("invidious.jing.rocks", "inv.tux.pizza", "invidious.nerdvpn.de", "invidious.privacydev.net")
             for (instance in invidiousInstances) {
                 try {
@@ -529,7 +527,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                 } catch (e: Exception) { continue }
             }
 
-            // 2. Esély: Piped API ha az Invidious is cserben hagy
             if (playUrl.isEmpty()) {
                 val pipedInstances = listOf("pipedapi.kavin.rocks", "pipedapi.smnz.de", "api.piped.projectsegfau.lt")
                 for (instance in pipedInstances) {
@@ -777,7 +774,6 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                             val audioFile = File(context.cacheDir, "record.mp4")
                             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()
                             try {
-                                // Megemelt minőség a pontosabb AI felismeréshez
                                 recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
                                 recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                                 recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -787,7 +783,7 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                 recorder.prepare()
                                 recorder.start()
                                 
-                                delay(7000) // Hosszabb felvétel az analizáláshoz
+                                delay(7000)
                                 
                                 recorder.stop()
                                 recorder.release()
@@ -804,7 +800,6 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                     status = "Megvan: $queryStr. Betöltés a lejátszóba..."
                                     val songs = searchYouTubeDirectly(queryStr)
                                     if (songs.isNotEmpty()) {
-                                        // Átváltunk a Kereső fül logikájához Invidious-al
                                         var playUrl = ""
                                         val instances = listOf("invidious.jing.rocks", "inv.tux.pizza")
                                         for (instance in instances) {
