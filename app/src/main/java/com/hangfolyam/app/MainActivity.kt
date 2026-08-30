@@ -1,10 +1,14 @@
 package com.hangfolyam.app
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,8 +27,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -104,6 +109,12 @@ fun AppNavigation(exoPlayer: ExoPlayer?) {
                     NavigationBarItem(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
+                        icon = { Icon(Icons.Default.Mic, contentDescription = "Felismerő") },
+                        label = { Text("Felismerő") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
                         icon = { Icon(Icons.Default.Person, contentDescription = "Profil") },
                         label = { Text("Profil") }
                     )
@@ -114,7 +125,8 @@ fun AppNavigation(exoPlayer: ExoPlayer?) {
                 when (selectedTab) {
                     0 -> HomeScreen(exoPlayer)
                     1 -> SearchScreen(exoPlayer)
-                    2 -> ProfileScreen(onSignOut = {
+                    2 -> AudioRecognizerScreen()
+                    3 -> ProfileScreen(onSignOut = {
                         auth.signOut()
                         exoPlayer?.stop()
                         currentUser = null
@@ -218,11 +230,11 @@ fun HomeScreen(exoPlayer: ExoPlayer?) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("Üdvözöllek a Hangfolyam-ban!", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Használd a Kereső fület a zenehallgatáshoz és a dalszövegek eléréséhez.", color = Color.Gray)
+        Text("Használd a Kereső fület a zenehallgatáshoz és a magyar dalok eléréséhez.", color = Color.Gray)
     }
 }
 
-data class Song(val title: String, val artist: String, val audioUrl: String)
+data class Song(val title: String, val artist: String, val audioUrl: String) // audioUrl itt most a videó ID-t tárolja
 
 @Composable
 fun SearchScreen(exoPlayer: ExoPlayer?) {
@@ -252,17 +264,61 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         }
     }
 
+    fun playSongAndFetchLyrics(index: Int) {
+        val song = searchResults[index]
+        activeSongIndex = index
+        currentLyrics = "Zene és dalszöveg betöltése..."
+        exoPlayer?.stop()
+        
+        coroutineScope.launch {
+            try {
+                // Lekérjük a közvetlen audio stream URL-t a Piped API-tól
+                val streamRequest = Request.Builder()
+                    .url("https://pipedapi.kavin.rocks/streams/${song.audioUrl}")
+                    .build()
+                val streamResponse = withContext(Dispatchers.IO) { sharedHttpClient.newCall(streamRequest).execute() }
+                
+                if (streamResponse.isSuccessful) {
+                    val streamJson = JSONObject(streamResponse.body?.string() ?: "")
+                    val audioStreams = streamJson.optJSONArray("audioStreams")
+                    var playUrl = ""
+                    
+                    if (audioStreams != null && audioStreams.length() > 0) {
+                        // Az első elérhető audio stream kiválasztása
+                        playUrl = audioStreams.getJSONObject(0).optString("url")
+                    }
+                    
+                    if (playUrl.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            exoPlayer?.setMediaItem(MediaItem.fromUri(playUrl))
+                            exoPlayer?.prepare()
+                            exoPlayer?.play()
+                        }
+                    } else {
+                        currentLyrics = "Hiba: Nem található audio stream."
+                    }
+                }
+            } catch (e: Exception) {
+                currentLyrics = "Hiba a lejátszás betöltésekor."
+            }
+
+            // Dalszöveg betöltése
+            val lyrics = fetchLyrics(song.artist, song.title)
+            currentLyrics = lyrics ?: "Nincs elérhető dalszöveg."
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("Teljes zenék keresése (pl. piano, jazz, rock)...") },
+            label = { Text("Keresés a teljes YouTube-on (pl. Azahriah, rock)...") },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = {
                         isSearching = true
                         coroutineScope.launch {
-                            searchResults = searchArchiveSongs(query)
+                            searchResults = searchYouTubeSongs(query)
                             isSearching = false
                         }
                     }) {
@@ -316,18 +372,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                         Spacer(modifier = Modifier.width(24.dp))
                         IconButton(onClick = {
                             val nextIndex = (activeSongIndex!! + 1) % searchResults.size
-                            activeSongIndex = nextIndex
-                            val nextSong = searchResults[nextIndex]
-                            currentLyrics = "Dalszöveg betöltése..."
-                            
-                            exoPlayer?.stop()
-                            exoPlayer?.setMediaItem(MediaItem.fromUri(nextSong.audioUrl))
-                            exoPlayer?.prepare()
-                            exoPlayer?.play()
-
-                            coroutineScope.launch {
-                                currentLyrics = fetchLyrics(nextSong.artist, nextSong.title) ?: "Nincs elérhető dalszöveg."
-                            }
+                            playSongAndFetchLyrics(nextIndex)
                         }) {
                             Icon(Icons.Default.SkipNext, contentDescription = "Következő zene", modifier = Modifier.size(36.dp))
                         }
@@ -351,18 +396,8 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                     val song = searchResults[index]
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
-                            activeSongIndex = index
-                            currentLyrics = "Dalszöveg betöltése..."
-                            Toast.makeText(context, "Zene indítása: ${song.title}", Toast.LENGTH_SHORT).show()
-                            
-                            exoPlayer?.stop()
-                            exoPlayer?.setMediaItem(MediaItem.fromUri(song.audioUrl))
-                            exoPlayer?.prepare()
-                            exoPlayer?.play()
-
-                            coroutineScope.launch {
-                                currentLyrics = fetchLyrics(song.artist, song.title) ?: "Nincs elérhető dalszöveg."
-                            }
+                            Toast.makeText(context, "Zene betöltése: ${song.title}", Toast.LENGTH_SHORT).show()
+                            playSongAndFetchLyrics(index)
                         }
                     ) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -380,54 +415,45 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-suspend fun searchArchiveSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
-    val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-    val url = "https://archive.org/advancedsearch.php?q=mediatype:(audio)+AND+($encodedQuery)&fl[]=identifier,title,creator&rows=10&output=json"
+// A korábbi archive.org kereső helyett itt az univerzális Piped/YouTube kereső
+suspend fun searchYouTubeSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
     try {
-        val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+        val url = "https://pipedapi.kavin.rocks/search?q=$encodedQuery"
+        
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .build()
+            
         val response = sharedHttpClient.newCall(request).execute()
+        
         if (response.isSuccessful) {
-            val jsonResponse = JSONObject(response.body?.string() ?: "")
-            val docs = jsonResponse.optJSONObject("response")?.optJSONArray("docs")
-            if (docs != null) {
+            val body = response.body?.string() ?: return@withContext emptyList()
+            val jsonObject = JSONObject(body)
+            
+            if (jsonObject.has("items")) {
+                val jsonArray = jsonObject.getJSONArray("items")
                 val list = mutableListOf<Song>()
-                for (i in 0 until docs.length()) {
-                    val doc = docs.getJSONObject(i)
-                    val identifier = doc.optString("identifier")
-                    val title = doc.optString("title", "Ismeretlen dal")
-                    val artist = doc.optString("creator", "Ismeretlen előadó")
-                    if (identifier.isNotEmpty()) {
-                        val metaUrl = "https://archive.org/metadata/$identifier"
-                        try {
-                            val metaResponse = sharedHttpClient.newCall(Request.Builder().url(metaUrl).header("User-Agent", "Mozilla/5.0").build()).execute()
-                            if (metaResponse.isSuccessful) {
-                                val metaJson = JSONObject(metaResponse.body?.string() ?: "")
-                                val files = metaJson.optJSONArray("files")
-                                if (files != null) {
-                                    for (j in 0 until files.length()) {
-                                        val file = files.getJSONObject(j)
-                                        val name = file.optString("name")
-                                        if (name.endsWith(".mp3", ignoreCase = true) || name.endsWith(".ogg", ignoreCase = true)) {
-                                            val audioUrl = "https://archive.org/download/$identifier/$name"
-                                            list.add(Song(title, artist, audioUrl))
-                                            break
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (_: Exception) {}
+                
+                for (i in 0 until jsonArray.length()) {
+                    val item = jsonArray.getJSONObject(i)
+                    if (item.optString("type") == "stream") {
+                        val title = item.getString("title")
+                        val uploader = item.optString("uploaderName", "Ismeretlen")
+                        val urlId = item.getString("url").replace("/watch?v=", "")
+                        
+                        // Az urlId-t mentjük el audioUrl-ként, lejátszáskor ebből kérjük ki a streamet
+                        list.add(Song(title, uploader, urlId))
                     }
                 }
-                if (list.isNotEmpty()) return@withContext list
+                return@withContext list
             }
         }
-    } catch (_: Exception) {}
-
-    return@withContext listOf(
-        Song("Beethoven Moonlight Sonata", "Ludwig van Beethoven", "https://upload.wikimedia.org/wikipedia/commons/b/b2/Beethoven_Moonlight_1st_movement.ogg"),
-        Song("Test Audio Track 1", "Internet Archive", "https://archive.org/download/testmp3testfile/mp3threetest.mp3"),
-        Song("SoundHelix Full Song", "SoundHelix", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
-    )
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    return@withContext emptyList()
 }
 
 suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Dispatchers.IO) {
@@ -448,6 +474,90 @@ suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Di
         }
     } catch (_: Exception) {}
     return@withContext null
+}
+
+@Composable
+fun AudioRecognizerScreen() {
+    val context = LocalContext.current
+    var isListening by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("Koppints a mikrofonra a felismeréshez") }
+    val coroutineScope = rememberCoroutineScope()
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            status = "Mikrofon engedély megtagadva!"
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .background(if (isListening) Color.Red else MaterialTheme.colorScheme.primary, CircleShape)
+                .clickable {
+                    val permissionCheck = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                    if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
+                        if (!isListening) {
+                            isListening = true
+                            status = "Zene felismerése (AudD API hívása)..."
+                            
+                            coroutineScope.launch {
+                                val result = recognizeAudioWithAudD()
+                                isListening = false
+                                status = result
+                            }
+                        }
+                    } else {
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Mic, contentDescription = null, tint = Color.White, modifier = Modifier.size(60.dp))
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(status, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 24.dp), textAlign = TextAlign.Center)
+    }
+}
+
+// AudD API integráció (Módosítsd a form testet MultipartBody-ra a valós hangfájl küldéséhez)
+suspend fun recognizeAudioWithAudD(): String = withContext(Dispatchers.IO) {
+    try {
+        val apiToken = "YOUR_AUDD_API_TOKEN" // IDE ÍRD BE AZ AUDD API KULCSODAT!
+        
+        val requestBody = okhttp3.FormBody.Builder()
+            .add("api_token", apiToken)
+            .add("return", "apple_music,spotify")
+            .build()
+
+        val request = Request.Builder()
+            .url("https://api.audd.io/")
+            .post(requestBody)
+            .build()
+
+        val response = sharedHttpClient.newCall(request).execute()
+        if (response.isSuccessful) {
+            val responseBody = response.body?.string() ?: ""
+            val json = JSONObject(responseBody)
+            if (json.getString("status") == "success" && !json.isNull("result")) {
+                val result = json.getJSONObject("result")
+                val title = result.getString("title")
+                val artist = result.getString("artist")
+                return@withContext "Felismerve: $artist - $title"
+            } else {
+                return@withContext "Nem sikerült felismerni a zenét. (API kulcs meg van adva?)"
+            }
+        }
+        return@withContext "Szerver hiba az azonosításkor."
+    } catch (e: Exception) {
+        return@withContext "Hiba: ${e.localizedMessage}"
+    }
 }
 
 @Composable
