@@ -7,15 +7,12 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.util.Base64
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,9 +35,11 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -61,10 +60,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
@@ -235,8 +232,11 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
             onClick = {
                 if (activity != null) {
                     try {
-                        val provider = OAuthProvider.newBuilder("google.com").build()
-                        auth.startActivityForSignInWithProvider(activity, provider)
+                        val provider = OAuthProvider.newBuilder("google.com")
+                        // Ennek a sornak köszönhetően mindig felugrik a fiókválasztó:
+                        provider.addCustomParameter("prompt", "select_account") 
+                        
+                        auth.startActivityForSignInWithProvider(activity, provider.build())
                             .addOnSuccessListener { onLoginSuccess() }
                             .addOnFailureListener { errorMessage = "Google bejelentkezés sikertelen: ${it.localizedMessage}" }
                     } catch (e: Exception) {
@@ -369,10 +369,10 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                     contentAlignment = Alignment.Center
                 ) {
                     when (tier) {
-                        0 -> Icon(Icons.Default.DoorSliding, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(40.dp))
-                        1 -> Icon(Icons.Default.AttachFile, contentDescription = null, tint = Color(0xFFE57373), modifier = Modifier.size(40.dp))
-                        2 -> Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(40.dp))
-                        3 -> DeadboltIcon()
+                        0 -> AnimatedDoorIcon(entropy)
+                        1 -> AnimatedPaperclipIcon(entropy)
+                        2 -> AnimatedPadlockIcon(entropy)
+                        3 -> AnimatedDeadboltIcon(entropy)
                         else -> BankVaultIcon(entropy)
                     }
                 }
@@ -419,11 +419,63 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
 }
 
 @Composable
-fun DeadboltIcon() {
+fun AnimatedDoorIcon(entropy: Double) {
+    val rotation by animateFloatAsState(targetValue = (entropy * 5).toFloat().coerceAtMost(60f), animationSpec = tween(300))
     Canvas(modifier = Modifier.size(40.dp)) {
-        drawRoundRect(color = Color.LightGray, topLeft = Offset(0f, 10f), size = Size(20f, 20f), cornerRadius = CornerRadius(4f, 4f))
-        drawRoundRect(color = Color.DarkGray, topLeft = Offset(22f, 0f), size = Size(18f, 40f), cornerRadius = CornerRadius(2f, 2f))
-        drawRect(color = Color.Black, topLeft = Offset(10f, 18f), size = Size(14f, 4f))
+        drawRect(color = Color.DarkGray, topLeft = Offset(8f, 4f), size = Size(24f, 32f), style = Stroke(width = 3f))
+        rotate(rotation, pivot = Offset(8f, 20f)) {
+            drawRect(color = Color.Gray, topLeft = Offset(8f, 4f), size = Size(24f, 32f))
+            drawCircle(color = Color.Black, radius = 2f, center = Offset(28f, 20f))
+        }
+    }
+}
+
+@Composable
+fun AnimatedPaperclipIcon(entropy: Double) {
+    val twistAngle by animateFloatAsState(targetValue = (entropy * 15).toFloat(), animationSpec = tween(500, easing = LinearOutSlowInEasing))
+    Canvas(modifier = Modifier.size(40.dp)) {
+        val path = Path().apply {
+            moveTo(14f, 10f)
+            lineTo(14f, 30f)
+            quadraticBezierTo(14f, 36f, 20f, 36f)
+            quadraticBezierTo(26f, 36f, 26f, 30f)
+            lineTo(26f, 14f)
+            quadraticBezierTo(26f, 6f, 20f, 6f)
+            quadraticBezierTo(14f, 6f, 14f, 14f)
+        }
+        rotate(twistAngle, center = Offset(size.width / 2, size.height / 2)) {
+            drawPath(path, color = Color(0xFFE57373), style = Stroke(width = 3f, cap = StrokeCap.Round))
+        }
+    }
+}
+
+@Composable
+fun AnimatedPadlockIcon(entropy: Double) {
+    val shackleOffset by animateFloatAsState(targetValue = if (entropy > 40) 0f else -6f, animationSpec = tween(300, easing = FastOutSlowInEasing))
+    val shake by animateFloatAsState(targetValue = (entropy * 2).toFloat() % 5f, animationSpec = tween(100))
+    Canvas(modifier = Modifier.size(40.dp)) {
+        translate(left = shake) {
+            val path = Path().apply {
+                moveTo(12f, 18f + shackleOffset)
+                lineTo(12f, 12f + shackleOffset)
+                quadraticBezierTo(12f, 4f + shackleOffset, 20f, 4f + shackleOffset)
+                quadraticBezierTo(28f, 4f + shackleOffset, 28f, 12f + shackleOffset)
+                lineTo(28f, 18f + shackleOffset)
+            }
+            drawPath(path, color = Color.LightGray, style = Stroke(width = 4f, cap = StrokeCap.Round))
+            drawRoundRect(color = Color(0xFFFFB74D), topLeft = Offset(8f, 18f), size = Size(24f, 18f), cornerRadius = CornerRadius(4f, 4f))
+            drawCircle(color = Color.DarkGray, radius = 2f, center = Offset(20f, 27f))
+        }
+    }
+}
+
+@Composable
+fun AnimatedDeadboltIcon(entropy: Double) {
+    val slideOffset by animateFloatAsState(targetValue = ((entropy - 50) / 2).toFloat().coerceIn(0f, 14f), animationSpec = tween(400))
+    Canvas(modifier = Modifier.size(40.dp)) {
+        drawRoundRect(color = Color.LightGray, topLeft = Offset(4f, 10f), size = Size(24f, 20f), cornerRadius = CornerRadius(4f, 4f))
+        drawRoundRect(color = Color.DarkGray, topLeft = Offset(28f, 0f), size = Size(10f, 40f), cornerRadius = CornerRadius(2f, 2f))
+        drawRect(color = Color.Black, topLeft = Offset(6f + slideOffset, 16f), size = Size(18f, 8f))
     }
 }
 
@@ -433,7 +485,6 @@ fun BankVaultIcon(entropy: Double) {
         targetValue = (entropy * 18).toFloat(),
         animationSpec = tween(600, easing = FastOutSlowInEasing)
     )
-    
     Canvas(modifier = Modifier.size(40.dp)) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = size.width / 2f
@@ -469,7 +520,6 @@ data class Song(val title: String, val artist: String, val audioUrl: String)
 
 @Composable
 fun SearchScreen(exoPlayer: ExoPlayer?) {
-    val context = LocalContext.current
     var query by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf(listOf<Song>()) }
     var isSearching by remember { mutableStateOf(false) }
@@ -499,13 +549,13 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     fun playSongAndFetchLyrics(index: Int) {
         val song = searchResults[index]
         activeSongIndex = index
-        currentLyrics = "Hanganyag felkutatása Invidious/Piped szervereken..."
+        currentLyrics = "Hanganyag felkutatása szervereken..."
         exoPlayer?.stop()
         
         coroutineScope.launch {
             var playUrl = ""
             
-            val invidiousInstances = listOf("invidious.jing.rocks", "inv.tux.pizza", "invidious.nerdvpn.de", "invidious.privacydev.net")
+            val invidiousInstances = listOf("invidious.nerdvpn.de", "invidious.jing.rocks", "inv.tux.pizza")
             for (instance in invidiousInstances) {
                 try {
                     val req = Request.Builder().url("https://$instance/api/v1/videos/${song.audioUrl}").build()
@@ -528,7 +578,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
             }
 
             if (playUrl.isEmpty()) {
-                val pipedInstances = listOf("pipedapi.kavin.rocks", "pipedapi.smnz.de", "api.piped.projectsegfau.lt")
+                val pipedInstances = listOf("pipedapi.kavin.rocks", "api.piped.projectsegfau.lt", "pipedapi.smnz.de", "piped-api.lunar.icu")
                 for (instance in pipedInstances) {
                     try {
                         val req = Request.Builder().url("https://$instance/streams/${song.audioUrl}").build()
@@ -552,11 +602,11 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                     currentLyrics = "Dalszöveg betöltése..."
                 }
             } else {
-                currentLyrics = "Hiba: Sajnos egyetlen független streamszerver sem tudta lekérni ezt a dalt. Próbálj rákeresni egy másik verzióra."
+                currentLyrics = "Hiba: Sajnos a független szerverek túlterheltek, nem sikerült lekérni a dalt. Próbálj egy másik találatot."
             }
 
             val lyrics = fetchLyrics(song.artist, song.title)
-            if (currentLyrics != "Hiba: Sajnos egyetlen független streamszerver sem tudta lekérni ezt a dalt. Próbálj rákeresni egy másik verzióra.") {
+            if (!currentLyrics!!.startsWith("Hiba")) {
                 currentLyrics = lyrics ?: "Nincs elérhető dalszöveg ehhez a dalhoz."
             }
         }
@@ -575,11 +625,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                         coroutineScope.launch {
                             val optimizedQuery = optimizeSearchWithGemini(query)
                             searchResults = searchYouTubeDirectly(optimizedQuery)
-                            
-                            if (searchResults.isEmpty()) {
-                                searchResults = searchYouTubePiped(optimizedQuery)
-                            }
-                            
+                            if (searchResults.isEmpty()) searchResults = searchYouTubePiped(optimizedQuery)
                             aiStatus = if (searchResults.isEmpty()) "Nincs találat." else null
                             isSearching = false
                         }
@@ -623,16 +669,11 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = {
-                            if (exoPlayer?.isPlaying == true) exoPlayer.pause() else exoPlayer?.play()
-                        }) {
+                        IconButton(onClick = { if (exoPlayer?.isPlaying == true) exoPlayer.pause() else exoPlayer?.play() }) {
                             Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Lejátszás/Szünet", modifier = Modifier.size(36.dp))
                         }
                         Spacer(modifier = Modifier.width(24.dp))
-                        IconButton(onClick = {
-                            val nextIndex = (activeSongIndex!! + 1) % searchResults.size
-                            playSongAndFetchLyrics(nextIndex)
-                        }) {
+                        IconButton(onClick = { playSongAndFetchLyrics((activeSongIndex!! + 1) % searchResults.size) }) {
                             Icon(Icons.Default.SkipNext, contentDescription = "Következő", modifier = Modifier.size(36.dp))
                         }
                     }
@@ -653,9 +694,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                 items(searchResults.indices.toList()) { index ->
                     val song = searchResults[index]
                     Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
-                            playSongAndFetchLyrics(index)
-                        }
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { playSongAndFetchLyrics(index) }
                     ) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(32.dp))
@@ -675,15 +714,12 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
 suspend fun searchYouTubeDirectly(query: String): List<Song> = withContext(Dispatchers.IO) {
     try {
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        val url = "https://www.youtube.com/results?search_query=$encodedQuery"
-        val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+        val request = Request.Builder().url("https://www.youtube.com/results?search_query=$encodedQuery").header("User-Agent", "Mozilla/5.0").build()
         val response = sharedHttpClient.newCall(request).execute()
         val html = response.body?.string() ?: return@withContext emptyList()
-        val pattern = Pattern.compile("var ytInitialData = (\\{.*?\\});</script>")
-        val matcher = pattern.matcher(html)
+        val matcher = Pattern.compile("var ytInitialData = (\\{.*?\\});</script>").matcher(html)
         if (matcher.find()) {
-            val json = JSONObject(matcher.group(1))
-            val contents = json.optJSONObject("contents")?.optJSONObject("twoColumnSearchResultsRenderer")?.optJSONObject("primaryContents")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")?.optJSONObject(0)?.optJSONObject("itemSectionRenderer")?.optJSONArray("contents")
+            val contents = JSONObject(matcher.group(1)).optJSONObject("contents")?.optJSONObject("twoColumnSearchResultsRenderer")?.optJSONObject("primaryContents")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")?.optJSONObject(0)?.optJSONObject("itemSectionRenderer")?.optJSONArray("contents")
             val list = mutableListOf<Song>()
             if (contents != null) {
                 for (i in 0 until contents.length()) {
@@ -708,10 +744,9 @@ suspend fun searchYouTubePiped(query: String): List<Song> = withContext(Dispatch
         val request = Request.Builder().url("https://pipedapi.kavin.rocks/search?q=$encodedQuery").build()
         val response = sharedHttpClient.newCall(request).execute()
         if (response.isSuccessful) {
-            val jsonObject = JSONObject(response.body?.string() ?: "")
-            if (jsonObject.has("items")) {
-                val jsonArray = jsonObject.getJSONArray("items")
-                val list = mutableListOf<Song>()
+            val jsonArray = JSONObject(response.body?.string() ?: "").optJSONArray("items")
+            val list = mutableListOf<Song>()
+            if (jsonArray != null) {
                 for (i in 0 until jsonArray.length()) {
                     val item = jsonArray.getJSONObject(i)
                     if (item.optString("type") == "stream") {
@@ -733,8 +768,7 @@ suspend fun optimizeSearchWithGemini(userQuery: String): String = withContext(Di
         val request = Request.Builder().url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY").post(jsonBody.toString().toRequestBody("application/json".toMediaTypeOrNull())).build()
         val response = sharedHttpClient.newCall(request).execute()
         if (response.isSuccessful) {
-            val json = JSONObject(response.body?.string() ?: "")
-            val candidates = json.optJSONArray("candidates")
+            val candidates = JSONObject(response.body?.string() ?: "").optJSONArray("candidates")
             if (candidates != null && candidates.length() > 0) {
                 return@withContext candidates.getJSONObject(0).optJSONObject("content")?.optJSONArray("parts")?.getJSONObject(0)?.optString("text")?.trim() ?: userQuery
             }
@@ -788,20 +822,15 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                 recorder.stop()
                                 recorder.release()
                                 
-                                status = "AudD zenefelismerő indítása..."
-                                var queryStr = recognizeWithAudD(audioFile)
+                                status = "Gemini AI hangfelismerés indítása..."
+                                val queryStr = recognizeWithGeminiPrimary(audioFile)
                                 
-                                if (queryStr == null) {
-                                    status = "AudD nem találta, átadás a Gemini AI-nak..."
-                                    queryStr = recognizeWithGeminiFallback(audioFile)
-                                }
-                                
-                                if (queryStr != null) {
+                                if (queryStr != null && !queryStr.contains("NINCS")) {
                                     status = "Megvan: $queryStr. Betöltés a lejátszóba..."
                                     val songs = searchYouTubeDirectly(queryStr)
                                     if (songs.isNotEmpty()) {
                                         var playUrl = ""
-                                        val instances = listOf("invidious.jing.rocks", "inv.tux.pizza")
+                                        val instances = listOf("invidious.nerdvpn.de", "invidious.jing.rocks", "inv.tux.pizza")
                                         for (instance in instances) {
                                             try {
                                                 val req = Request.Builder().url("https://$instance/api/v1/videos/${songs[0].audioUrl}").build()
@@ -824,13 +853,13 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                                 exoPlayer?.play()
                                             }
                                         } else {
-                                            status = "Találat megvan ($queryStr), de a stream nem indul."
+                                            status = "Találat megvan ($queryStr), de jelenleg minden stream szerver túlterhelt."
                                         }
                                     } else {
-                                        status = "A YouTube-on sem található."
+                                        status = "A YouTube-on nem található meg ez a szám."
                                     }
                                 } else {
-                                    status = "Sajnos túl nagy a háttérzaj, egyik AI sem ismerte fel."
+                                    status = "Sajnos túl nagy a háttérzaj, az AI nem ismerte fel a dalt."
                                 }
                             } catch (e: Exception) {
                                 status = "Hiba történt a felvételkor: ${e.message}"
@@ -850,36 +879,19 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-suspend fun recognizeWithAudD(file: File): String? = withContext(Dispatchers.IO) {
-    try {
-        val reqBody = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("api_token", "test").addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaTypeOrNull())).build()
-        val req = Request.Builder().url("https://api.audd.io/").post(reqBody).build()
-        val res = sharedHttpClient.newCall(req).execute()
-        if (res.isSuccessful) {
-            val json = JSONObject(res.body?.string() ?: "")
-            if (json.optString("status") == "success" && !json.isNull("result")) {
-                val result = json.getJSONObject("result")
-                return@withContext "${result.optString("artist")} ${result.optString("title")}"
-            }
-        }
-    } catch (e: Exception) {}
-    return@withContext null
-}
-
-suspend fun recognizeWithGeminiFallback(file: File): String? = withContext(Dispatchers.IO) {
+suspend fun recognizeWithGeminiPrimary(file: File): String? = withContext(Dispatchers.IO) {
     try {
         val base64Audio = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
         val jsonBody = JSONObject().apply {
             put("contents", org.json.JSONArray().put(JSONObject().put("parts", org.json.JSONArray().apply {
-                put(JSONObject().put("text", "Elemezd ezt a hangfelvételt. Ismerd fel a benne hallható dalt (előadó - cím). Ha csak dalszöveget hallasz, írd le a szöveget. Csak a keresendő kifejezést add vissza, semmi mást!"))
+                put(JSONObject().put("text", "A csatolt hangfájl egy részlet egy zeneszámból. Kérlek azonosítsd a dalt. CSAK és kizárólag az előadót és a címet írd ki, kötőjellel elválasztva (pl. 'Azahriah - 3 korty'). Ne írj semmilyen formázást vagy extra szöveget! Ha nem tudod biztosra, írd ezt: 'NINCS'."))
                 put(JSONObject().put("inlineData", JSONObject().apply { put("mimeType", "audio/mp4"); put("data", base64Audio) }))
             })))
         }
-        val req = Request.Builder().url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY").post(jsonBody.toString().toRequestBody("application/json".toMediaTypeOrNull())).build()
+        val req = Request.Builder().url("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$GEMINI_API_KEY").post(jsonBody.toString().toRequestBody("application/json".toMediaTypeOrNull())).build()
         val res = sharedHttpClient.newCall(req).execute()
         if (res.isSuccessful) {
-            val json = JSONObject(res.body?.string() ?: "")
-            val candidates = json.optJSONArray("candidates")
+            val candidates = JSONObject(res.body?.string() ?: "").optJSONArray("candidates")
             if (candidates != null && candidates.length() > 0) {
                 return@withContext candidates.getJSONObject(0).optJSONObject("content")?.optJSONArray("parts")?.getJSONObject(0)?.optString("text")?.trim()
             }
