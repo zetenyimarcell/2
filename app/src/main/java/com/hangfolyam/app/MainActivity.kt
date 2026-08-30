@@ -432,7 +432,10 @@ fun AnimatedDoorIcon(entropy: Double) {
 
 @Composable
 fun AnimatedPaperclipIcon(entropy: Double) {
-    val twistAngle by animateFloatAsState(targetValue = (entropy * 15).toFloat(), animationSpec = tween(500, easing = LinearOutSlowInEasing))
+    val twistAngle by animateFloatAsState(
+        targetValue = (entropy * 15).toFloat(), 
+        animationSpec = tween(500, easing = LinearOutSlowInEasing)
+    )
     Canvas(modifier = Modifier.size(40.dp)) {
         val path = Path().apply {
             moveTo(14f, 10f)
@@ -443,7 +446,8 @@ fun AnimatedPaperclipIcon(entropy: Double) {
             quadraticBezierTo(26f, 6f, 20f, 6f)
             quadraticBezierTo(14f, 6f, 14f, 14f)
         }
-        rotate(twistAngle, center = Offset(size.width / 2, size.height / 2)) {
+        // JAVÍTVA: A paraméter neve 'pivot', nem pedig 'center'
+        rotate(twistAngle, pivot = Offset(size.width / 2, size.height / 2)) {
             drawPath(path, color = Color(0xFFE57373), style = Stroke(width = 3f, cap = StrokeCap.Round))
         }
     }
