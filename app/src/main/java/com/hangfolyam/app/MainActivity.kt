@@ -13,7 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -227,7 +227,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
             Text("Nincs fiókod? Regisztráció (Vault)")
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+        Divider(modifier = Modifier.padding(vertical = 12.dp), color = Color.DarkGray)
         
         OutlinedButton(
             onClick = {
