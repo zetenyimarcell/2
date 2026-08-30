@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -233,7 +234,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
                 if (activity != null) {
                     try {
                         val provider = OAuthProvider.newBuilder("google.com")
-                        // Ennek a sornak köszönhetően mindig felugrik a fiókválasztó:
                         provider.addCustomParameter("prompt", "select_account") 
                         
                         auth.startActivityForSignInWithProvider(activity, provider.build())
@@ -422,33 +422,37 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
 fun AnimatedDoorIcon(entropy: Double) {
     val rotation by animateFloatAsState(targetValue = (entropy * 5).toFloat().coerceAtMost(60f), animationSpec = tween(300))
     Canvas(modifier = Modifier.size(40.dp)) {
-        drawRect(color = Color.DarkGray, topLeft = Offset(8f, 4f), size = Size(24f, 32f), style = Stroke(width = 3f))
-        rotate(rotation, pivot = Offset(8f, 20f)) {
-            drawRect(color = Color.Gray, topLeft = Offset(8f, 4f), size = Size(24f, 32f))
-            drawCircle(color = Color.Black, radius = 2f, center = Offset(28f, 20f))
+        val scaleX = size.width / 40f
+        val scaleY = size.height / 40f
+        scale(scaleX, scaleY, pivot = Offset.Zero) {
+            drawRect(color = Color.DarkGray, topLeft = Offset(8f, 4f), size = Size(24f, 32f), style = Stroke(width = 3f))
+            rotate(rotation, pivot = Offset(8f, 20f)) {
+                drawRect(color = Color.Gray, topLeft = Offset(8f, 4f), size = Size(24f, 32f))
+                drawCircle(color = Color.Black, radius = 2f, center = Offset(28f, 20f))
+            }
         }
     }
 }
 
 @Composable
 fun AnimatedPaperclipIcon(entropy: Double) {
-    val twistAngle by animateFloatAsState(
-        targetValue = (entropy * 15).toFloat(), 
-        animationSpec = tween(500, easing = LinearOutSlowInEasing)
-    )
+    val twistAngle by animateFloatAsState(targetValue = (entropy * 15).toFloat(), animationSpec = tween(500, easing = LinearOutSlowInEasing))
     Canvas(modifier = Modifier.size(40.dp)) {
-        val path = Path().apply {
-            moveTo(14f, 10f)
-            lineTo(14f, 30f)
-            quadraticBezierTo(14f, 36f, 20f, 36f)
-            quadraticBezierTo(26f, 36f, 26f, 30f)
-            lineTo(26f, 14f)
-            quadraticBezierTo(26f, 6f, 20f, 6f)
-            quadraticBezierTo(14f, 6f, 14f, 14f)
-        }
-        // JAVÍTVA: A paraméter neve 'pivot', nem pedig 'center'
-        rotate(twistAngle, pivot = Offset(size.width / 2, size.height / 2)) {
-            drawPath(path, color = Color(0xFFE57373), style = Stroke(width = 3f, cap = StrokeCap.Round))
+        val scaleX = size.width / 40f
+        val scaleY = size.height / 40f
+        scale(scaleX, scaleY, pivot = Offset.Zero) {
+            val path = Path().apply {
+                moveTo(14f, 10f)
+                lineTo(14f, 30f)
+                quadraticBezierTo(14f, 36f, 20f, 36f)
+                quadraticBezierTo(26f, 36f, 26f, 30f)
+                lineTo(26f, 14f)
+                quadraticBezierTo(26f, 6f, 20f, 6f)
+                quadraticBezierTo(14f, 6f, 14f, 14f)
+            }
+            rotate(twistAngle, pivot = Offset(20f, 20f)) {
+                drawPath(path, color = Color(0xFFE57373), style = Stroke(width = 3f, cap = StrokeCap.Round))
+            }
         }
     }
 }
@@ -458,17 +462,21 @@ fun AnimatedPadlockIcon(entropy: Double) {
     val shackleOffset by animateFloatAsState(targetValue = if (entropy > 40) 0f else -6f, animationSpec = tween(300, easing = FastOutSlowInEasing))
     val shake by animateFloatAsState(targetValue = (entropy * 2).toFloat() % 5f, animationSpec = tween(100))
     Canvas(modifier = Modifier.size(40.dp)) {
-        translate(left = shake) {
-            val path = Path().apply {
-                moveTo(12f, 18f + shackleOffset)
-                lineTo(12f, 12f + shackleOffset)
-                quadraticBezierTo(12f, 4f + shackleOffset, 20f, 4f + shackleOffset)
-                quadraticBezierTo(28f, 4f + shackleOffset, 28f, 12f + shackleOffset)
-                lineTo(28f, 18f + shackleOffset)
+        val scaleX = size.width / 40f
+        val scaleY = size.height / 40f
+        scale(scaleX, scaleY, pivot = Offset.Zero) {
+            translate(left = shake) {
+                val path = Path().apply {
+                    moveTo(12f, 18f + shackleOffset)
+                    lineTo(12f, 12f + shackleOffset)
+                    quadraticBezierTo(12f, 4f + shackleOffset, 20f, 4f + shackleOffset)
+                    quadraticBezierTo(28f, 4f + shackleOffset, 28f, 12f + shackleOffset)
+                    lineTo(28f, 18f + shackleOffset)
+                }
+                drawPath(path, color = Color.LightGray, style = Stroke(width = 4f, cap = StrokeCap.Round))
+                drawRoundRect(color = Color(0xFFFFB74D), topLeft = Offset(8f, 18f), size = Size(24f, 18f), cornerRadius = CornerRadius(4f, 4f))
+                drawCircle(color = Color.DarkGray, radius = 2f, center = Offset(20f, 27f))
             }
-            drawPath(path, color = Color.LightGray, style = Stroke(width = 4f, cap = StrokeCap.Round))
-            drawRoundRect(color = Color(0xFFFFB74D), topLeft = Offset(8f, 18f), size = Size(24f, 18f), cornerRadius = CornerRadius(4f, 4f))
-            drawCircle(color = Color.DarkGray, radius = 2f, center = Offset(20f, 27f))
         }
     }
 }
@@ -477,9 +485,13 @@ fun AnimatedPadlockIcon(entropy: Double) {
 fun AnimatedDeadboltIcon(entropy: Double) {
     val slideOffset by animateFloatAsState(targetValue = ((entropy - 50) / 2).toFloat().coerceIn(0f, 14f), animationSpec = tween(400))
     Canvas(modifier = Modifier.size(40.dp)) {
-        drawRoundRect(color = Color.LightGray, topLeft = Offset(4f, 10f), size = Size(24f, 20f), cornerRadius = CornerRadius(4f, 4f))
-        drawRoundRect(color = Color.DarkGray, topLeft = Offset(28f, 0f), size = Size(10f, 40f), cornerRadius = CornerRadius(2f, 2f))
-        drawRect(color = Color.Black, topLeft = Offset(6f + slideOffset, 16f), size = Size(18f, 8f))
+        val scaleX = size.width / 40f
+        val scaleY = size.height / 40f
+        scale(scaleX, scaleY, pivot = Offset.Zero) {
+            drawRoundRect(color = Color.LightGray, topLeft = Offset(4f, 10f), size = Size(24f, 20f), cornerRadius = CornerRadius(4f, 4f))
+            drawRoundRect(color = Color.DarkGray, topLeft = Offset(28f, 0f), size = Size(10f, 40f), cornerRadius = CornerRadius(2f, 2f))
+            drawRect(color = Color.Black, topLeft = Offset(6f + slideOffset, 16f), size = Size(18f, 8f))
+        }
     }
 }
 
@@ -553,51 +565,53 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     fun playSongAndFetchLyrics(index: Int) {
         val song = searchResults[index]
         activeSongIndex = index
-        currentLyrics = "Hanganyag felkutatása szervereken..."
+        currentLyrics = "Hanganyag felkutatása Cobalt/Piped szervereken..."
         exoPlayer?.stop()
         
         coroutineScope.launch {
             var playUrl = ""
             
-            val invidiousInstances = listOf("invidious.nerdvpn.de", "invidious.jing.rocks", "inv.tux.pizza")
-            for (instance in invidiousInstances) {
-                try {
-                    val req = Request.Builder().url("https://$instance/api/v1/videos/${song.audioUrl}").build()
-                    val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
-                    if (res.isSuccessful) {
-                        val json = JSONObject(res.body?.string() ?: "")
-                        val formats = json.optJSONArray("adaptiveFormats")
-                        if (formats != null) {
-                            for (i in 0 until formats.length()) {
-                                val format = formats.getJSONObject(i)
-                                if (format.optString("type").startsWith("audio")) {
-                                    playUrl = format.optString("url")
-                                    break
+            // 1. Cobalt API (Legmegbízhatóbb audió kinyerés közvetlen YouTube linkből)
+            try {
+                val jsonBody = JSONObject().put("url", "https://www.youtube.com/watch?v=${song.audioUrl}").put("isAudioOnly", true)
+                val req = Request.Builder()
+                    .url("https://co.wuk.sh/api/json")
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                    .post(jsonBody.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+                    .build()
+                val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
+                if (res.isSuccessful) {
+                    val url = JSONObject(res.body?.string() ?: "").optString("url")
+                    if (url.isNotEmpty()) playUrl = url
+                }
+            } catch (e: Exception) {}
+
+            // 2. Fallback: Invidious
+            if (playUrl.isEmpty()) {
+                val invidiousInstances = listOf("invidious.nerdvpn.de", "invidious.jing.rocks", "inv.tux.pizza")
+                for (instance in invidiousInstances) {
+                    try {
+                        val req = Request.Builder().url("https://$instance/api/v1/videos/${song.audioUrl}").build()
+                        val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
+                        if (res.isSuccessful) {
+                            val json = JSONObject(res.body?.string() ?: "")
+                            val formats = json.optJSONArray("adaptiveFormats")
+                            if (formats != null) {
+                                for (i in 0 until formats.length()) {
+                                    val format = formats.getJSONObject(i)
+                                    if (format.optString("type").startsWith("audio")) {
+                                        playUrl = format.optString("url")
+                                        break
+                                    }
                                 }
                             }
                         }
-                    }
-                    if (playUrl.isNotEmpty()) break
-                } catch (e: Exception) { continue }
-            }
-
-            if (playUrl.isEmpty()) {
-                val pipedInstances = listOf("pipedapi.kavin.rocks", "api.piped.projectsegfau.lt", "pipedapi.smnz.de", "piped-api.lunar.icu")
-                for (instance in pipedInstances) {
-                    try {
-                        val req = Request.Builder().url("https://$instance/streams/${song.audioUrl}").build()
-                        val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
-                        if (res.isSuccessful) {
-                            val streams = JSONObject(res.body?.string() ?: "").optJSONArray("audioStreams")
-                            if (streams != null && streams.length() > 0) {
-                                playUrl = streams.getJSONObject(0).optString("url")
-                                break
-                            }
-                        }
+                        if (playUrl.isNotEmpty()) break
                     } catch (e: Exception) { continue }
                 }
             }
-            
+
             if (playUrl.isNotEmpty()) {
                 withContext(Dispatchers.Main) {
                     exoPlayer?.setMediaItem(MediaItem.fromUri(playUrl))
@@ -606,7 +620,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                     currentLyrics = "Dalszöveg betöltése..."
                 }
             } else {
-                currentLyrics = "Hiba: Sajnos a független szerverek túlterheltek, nem sikerült lekérni a dalt. Próbálj egy másik találatot."
+                currentLyrics = "Hiba: Sajnos a médiaszerverek túlterheltek vagy blokkolták a letöltést. Próbálj egy másik találatot."
             }
 
             val lyrics = fetchLyrics(song.artist, song.title)
@@ -807,7 +821,7 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                 if (permCheck == PackageManager.PERMISSION_GRANTED) {
                     if (!isListening) {
                         isListening = true
-                        status = "Hang rögzítése tisztább minőségben (7 másodperc)..."
+                        status = "Hang rögzítése tisztább minőségben (10 másodperc)..."
                         coroutineScope.launch {
                             val audioFile = File(context.cacheDir, "record.mp4")
                             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()
@@ -821,12 +835,12 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                 recorder.prepare()
                                 recorder.start()
                                 
-                                delay(7000)
+                                delay(10000) // 10 másodperc a jobb találatért
                                 
                                 recorder.stop()
                                 recorder.release()
                                 
-                                status = "Gemini AI hangfelismerés indítása..."
+                                status = "Gemini 1.5 Pro hangfelismerés indítása..."
                                 val queryStr = recognizeWithGeminiPrimary(audioFile)
                                 
                                 if (queryStr != null && !queryStr.contains("NINCS")) {
@@ -834,21 +848,20 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                     val songs = searchYouTubeDirectly(queryStr)
                                     if (songs.isNotEmpty()) {
                                         var playUrl = ""
-                                        val instances = listOf("invidious.nerdvpn.de", "invidious.jing.rocks", "inv.tux.pizza")
-                                        for (instance in instances) {
-                                            try {
-                                                val req = Request.Builder().url("https://$instance/api/v1/videos/${songs[0].audioUrl}").build()
-                                                val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
-                                                if (res.isSuccessful) {
-                                                    val format = JSONObject(res.body?.string() ?: "").optJSONArray("adaptiveFormats")?.getJSONObject(0)
-                                                    if (format != null) {
-                                                        playUrl = format.optString("url")
-                                                        break
-                                                    }
-                                                }
-                                            } catch (e: Exception) {}
-                                        }
                                         
+                                        // 1. Cobalt API fallback
+                                        try {
+                                            val jsonBody = JSONObject().put("url", "https://www.youtube.com/watch?v=${songs[0].audioUrl}").put("isAudioOnly", true)
+                                            val req = Request.Builder()
+                                                .url("https://co.wuk.sh/api/json")
+                                                .header("Accept", "application/json")
+                                                .header("Content-Type", "application/json")
+                                                .post(jsonBody.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+                                                .build()
+                                            val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
+                                            if (res.isSuccessful) playUrl = JSONObject(res.body?.string() ?: "").optString("url")
+                                        } catch (e: Exception) {}
+
                                         if (playUrl.isNotEmpty()) {
                                             status = "Lejátszás: ${songs[0].title}"
                                             withContext(Dispatchers.Main) {
@@ -863,7 +876,7 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                         status = "A YouTube-on nem található meg ez a szám."
                                     }
                                 } else {
-                                    status = "Sajnos túl nagy a háttérzaj, az AI nem ismerte fel a dalt."
+                                    status = "Sajnos a zaj miatt az AI nem tudta azonosítani a dalt."
                                 }
                             } catch (e: Exception) {
                                 status = "Hiba történt a felvételkor: ${e.message}"
@@ -888,11 +901,12 @@ suspend fun recognizeWithGeminiPrimary(file: File): String? = withContext(Dispat
         val base64Audio = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
         val jsonBody = JSONObject().apply {
             put("contents", org.json.JSONArray().put(JSONObject().put("parts", org.json.JSONArray().apply {
-                put(JSONObject().put("text", "A csatolt hangfájl egy részlet egy zeneszámból. Kérlek azonosítsd a dalt. CSAK és kizárólag az előadót és a címet írd ki, kötőjellel elválasztva (pl. 'Azahriah - 3 korty'). Ne írj semmilyen formázást vagy extra szöveget! Ha nem tudod biztosra, írd ezt: 'NINCS'."))
+                put(JSONObject().put("text", "Ez egy zeneszám hangfelvétele. A felvétel lehet, hogy zajos vagy rossz minőségű. Kérlek, hallgasd meg figyelmesen, és azonosítsd a dalt! Válaszodban CSAK és kizárólag az előadót és a címet írd le, kötőjellel elválasztva (pl. 'Azahriah - 3 korty'). Próbáld meg kitalálni a zaj ellenére is. Ha egyáltalán nem hallható rajta semmilyen zene, csak akkor írd ezt: 'NINCS'."))
                 put(JSONObject().put("inlineData", JSONObject().apply { put("mimeType", "audio/mp4"); put("data", base64Audio) }))
             })))
         }
-        val req = Request.Builder().url("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$GEMINI_API_KEY").post(jsonBody.toString().toRequestBody("application/json".toMediaTypeOrNull())).build()
+        // Itt most a gemini-1.5-pro modellt hívjuk meg a flash helyett!
+        val req = Request.Builder().url("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=$GEMINI_API_KEY").post(jsonBody.toString().toRequestBody("application/json".toMediaTypeOrNull())).build()
         val res = sharedHttpClient.newCall(req).execute()
         if (res.isSuccessful) {
             val candidates = JSONObject(res.body?.string() ?: "").optJSONArray("candidates")
