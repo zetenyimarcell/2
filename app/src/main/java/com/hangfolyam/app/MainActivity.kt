@@ -3,6 +3,8 @@ package com.hangfolyam.app
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.media.MediaRecorder
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -41,9 +43,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 private val sharedHttpClient: OkHttpClient by lazy {
@@ -234,7 +240,7 @@ fun HomeScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-data class Song(val title: String, val artist: String, val audioUrl: String) // audioUrl itt most a videó ID-t tárolja
+data class Song(val title: String, val artist: String, val audioUrl: String)
 
 @Composable
 fun SearchScreen(exoPlayer: ExoPlayer?) {
@@ -272,9 +278,9 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         
         coroutineScope.launch {
             try {
-                // Lekérjük a közvetlen audio stream URL-t a Piped API-tól
+                // Javított URL: api.piped.stream
                 val streamRequest = Request.Builder()
-                    .url("https://pipedapi.kavin.rocks/streams/${song.audioUrl}")
+                    .url("https://api.piped.stream/streams/${song.audioUrl}")
                     .build()
                 val streamResponse = withContext(Dispatchers.IO) { sharedHttpClient.newCall(streamRequest).execute() }
                 
@@ -284,7 +290,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                     var playUrl = ""
                     
                     if (audioStreams != null && audioStreams.length() > 0) {
-                        // Az első elérhető audio stream kiválasztása
                         playUrl = audioStreams.getJSONObject(0).optString("url")
                     }
                     
@@ -297,12 +302,13 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                     } else {
                         currentLyrics = "Hiba: Nem található audio stream."
                     }
+                } else {
+                     currentLyrics = "Hiba a stream lekérésekor (Kód: ${streamResponse.code})"
                 }
             } catch (e: Exception) {
                 currentLyrics = "Hiba a lejátszás betöltésekor."
             }
 
-            // Dalszöveg betöltése
             val lyrics = fetchLyrics(song.artist, song.title)
             currentLyrics = lyrics ?: "Nincs elérhető dalszöveg."
         }
@@ -415,11 +421,11 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-// A korábbi archive.org kereső helyett itt az univerzális Piped/YouTube kereső
 suspend fun searchYouTubeSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
     try {
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        val url = "https://pipedapi.kavin.rocks/search?q=$encodedQuery"
+        // Javított URL: api.piped.stream
+        val url = "https://api.piped.stream/search?q=$encodedQuery"
         
         val request = Request.Builder()
             .url(url)
@@ -443,7 +449,6 @@ suspend fun searchYouTubeSongs(query: String): List<Song> = withContext(Dispatch
                         val uploader = item.optString("uploaderName", "Ismeretlen")
                         val urlId = item.getString("url").replace("/watch?v=", "")
                         
-                        // Az urlId-t mentjük el audioUrl-ként, lejátszáskor ebből kérjük ki a streamet
                         list.add(Song(title, uploader, urlId))
                     }
                 }
@@ -480,7 +485,7 @@ suspend fun fetchLyrics(artist: String, title: String): String? = withContext(Di
 fun AudioRecognizerScreen() {
     val context = LocalContext.current
     var isListening by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("Koppints a mikrofonra a felismeréshez") }
+    var status by remember { mutableStateOf("Koppints a mikrofonra a felismeréshez (5 mp)") }
     val coroutineScope = rememberCoroutineScope()
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -505,12 +510,40 @@ fun AudioRecognizerScreen() {
                     if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
                         if (!isListening) {
                             isListening = true
-                            status = "Zene felismerése (AudD API hívása)..."
+                            status = "Felvétel folyamatban (5 mp)..."
                             
                             coroutineScope.launch {
-                                val result = recognizeAudioWithAudD()
-                                isListening = false
-                                status = result
+                                val audioFile = File(context.cacheDir, "temp_record.m4a")
+                                val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    MediaRecorder(context)
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    MediaRecorder()
+                                }
+                                
+                                try {
+                                    recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+                                    recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                                    recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                    recorder.setOutputFile(audioFile.absolutePath)
+                                    recorder.prepare()
+                                    recorder.start()
+                                    
+                                    // 5 másodperc rögzítés
+                                    delay(5000)
+                                    
+                                    recorder.stop()
+                                    recorder.release()
+                                    
+                                    status = "Felismerés folyamatban a szerveren..."
+                                    val result = recognizeAudioWithAudD(audioFile)
+                                    status = result
+                                } catch (e: Exception) {
+                                    status = "Hiba a rögzítéskor: ${e.localizedMessage}"
+                                    recorder.release()
+                                } finally {
+                                    isListening = false
+                                }
                             }
                         }
                     } else {
@@ -526,14 +559,20 @@ fun AudioRecognizerScreen() {
     }
 }
 
-// AudD API integráció (Módosítsd a form testet MultipartBody-ra a valós hangfájl küldéséhez)
-suspend fun recognizeAudioWithAudD(): String = withContext(Dispatchers.IO) {
+suspend fun recognizeAudioWithAudD(audioFile: File): String = withContext(Dispatchers.IO) {
     try {
-        val apiToken = "YOUR_AUDD_API_TOKEN" // IDE ÍRD BE AZ AUDD API KULCSODAT!
+        val apiToken = "YOUR_AUDD_API_TOKEN" // <--- IDE ÍRD BE AZ AUDD API KULCSODAT!
         
-        val requestBody = okhttp3.FormBody.Builder()
-            .add("api_token", apiToken)
-            .add("return", "apple_music,spotify")
+        // Multipart form adatok létrehozása a fájl küldéséhez
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("api_token", apiToken)
+            .addFormDataPart("return", "apple_music,spotify")
+            .addFormDataPart(
+                "file",
+                audioFile.name,
+                audioFile.asRequestBody("audio/mp4".toMediaTypeOrNull())
+            )
             .build()
 
         val request = Request.Builder()
@@ -545,18 +584,25 @@ suspend fun recognizeAudioWithAudD(): String = withContext(Dispatchers.IO) {
         if (response.isSuccessful) {
             val responseBody = response.body?.string() ?: ""
             val json = JSONObject(responseBody)
-            if (json.getString("status") == "success" && !json.isNull("result")) {
+            
+            if (json.optString("status") == "success" && !json.isNull("result")) {
                 val result = json.getJSONObject("result")
-                val title = result.getString("title")
-                val artist = result.getString("artist")
+                val title = result.optString("title", "Ismeretlen cím")
+                val artist = result.optString("artist", "Ismeretlen előadó")
                 return@withContext "Felismerve: $artist - $title"
             } else {
-                return@withContext "Nem sikerült felismerni a zenét. (API kulcs meg van adva?)"
+                val errorMsg = json.optJSONObject("error")?.optString("error_message") ?: "Nincs találat."
+                return@withContext "Nem sikerült felismerni a zenét. ($errorMsg)"
             }
         }
-        return@withContext "Szerver hiba az azonosításkor."
+        return@withContext "Szerver hiba (Kód: ${response.code})"
     } catch (e: Exception) {
-        return@withContext "Hiba: ${e.localizedMessage}"
+        return@withContext "Hálózati hiba: ${e.localizedMessage}"
+    } finally {
+        // Átmeneti fájl törlése
+        if (audioFile.exists()) {
+            audioFile.delete()
+        }
     }
 }
 
