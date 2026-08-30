@@ -278,9 +278,9 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         
         coroutineScope.launch {
             try {
-                // Javított URL: api.piped.stream
+                // Stabil Piped szerver használata a lejátszáshoz
                 val streamRequest = Request.Builder()
-                    .url("https://api.piped.stream/streams/${song.audioUrl}")
+                    .url("https://pipedapi.kavin.rocks/streams/${song.audioUrl}")
                     .build()
                 val streamResponse = withContext(Dispatchers.IO) { sharedHttpClient.newCall(streamRequest).execute() }
                 
@@ -424,8 +424,8 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
 suspend fun searchYouTubeSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
     try {
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        // Javított URL: api.piped.stream
-        val url = "https://api.piped.stream/search?q=$encodedQuery"
+        // Stabil Piped szerver használata a kereséshez
+        val url = "https://pipedapi.kavin.rocks/search?q=$encodedQuery"
         
         val request = Request.Builder()
             .url(url)
@@ -561,7 +561,7 @@ fun AudioRecognizerScreen() {
 
 suspend fun recognizeAudioWithAudD(audioFile: File): String = withContext(Dispatchers.IO) {
     try {
-        val apiToken = "YOUR_AUDD_API_TOKEN" // <--- IDE ÍRD BE AZ AUDD API KULCSODAT!
+        val apiToken = "test" // <--- Ingyenes teszt kulcs beállítva
         
         // Multipart form adatok létrehozása a fájl küldéséhez
         val requestBody = MultipartBody.Builder()
