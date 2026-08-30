@@ -13,7 +13,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -39,6 +40,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -227,7 +229,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
             Text("Nincs fiókod? Regisztráció (Vault)")
         }
 
-        Divider(modifier = Modifier.padding(vertical = 12.dp), color = Color.DarkGray)
+        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.DarkGray)
         
         OutlinedButton(
             onClick = {
@@ -256,9 +258,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
     }
 }
 
-// ==========================================
-// VAULT REGISZTRÁCIÓ (ANIMÁLT JELSZÓMÉRŐ)
-// ==========================================
 @Composable
 fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     var email by remember { mutableStateOf("") }
@@ -267,7 +266,6 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     var errorMessage by remember { mutableStateOf("") }
     val auth = FirebaseAuth.getInstance()
 
-    // Entrópia (Bits) számítás
     var entropy by remember { mutableStateOf(0.0) }
     LaunchedEffect(password) {
         if (password.isEmpty()) {
@@ -282,7 +280,6 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
         }
     }
 
-    // Tiers meghatározása bits alapján
     val tier = when {
         entropy < 1 -> 0  
         entropy < 30 -> 1 
@@ -363,7 +360,6 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // A VAULT MÉRŐ DOBOZ
         Box(
             modifier = Modifier.fillMaxWidth().border(1.dp, animatedColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).background(Color(0xFF1A1C29), RoundedCornerShape(12.dp)).padding(16.dp)
         ) {
@@ -377,7 +373,7 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                         1 -> Icon(Icons.Default.AttachFile, contentDescription = null, tint = Color(0xFFE57373), modifier = Modifier.size(40.dp))
                         2 -> Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(40.dp))
                         3 -> DeadboltIcon()
-                        else -> BankVaultIcon()
+                        else -> BankVaultIcon(entropy) // Átadott entrópia az animációhoz
                     }
                 }
 
@@ -425,50 +421,41 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
 @Composable
 fun DeadboltIcon() {
     Canvas(modifier = Modifier.size(40.dp)) {
-        drawRoundRect(
-            color = Color.LightGray,
-            topLeft = Offset(0f, 10f),
-            size = Size(20f, 20f),
-            cornerRadius = CornerRadius(4f, 4f)
-        )
-        drawRoundRect(
-            color = Color.DarkGray,
-            topLeft = Offset(22f, 0f),
-            size = Size(18f, 40f),
-            cornerRadius = CornerRadius(2f, 2f)
-        )
-        drawRect(
-            color = Color.Black,
-            topLeft = Offset(10f, 18f),
-            size = Size(14f, 4f)
-        )
+        drawRoundRect(color = Color.LightGray, topLeft = Offset(0f, 10f), size = Size(20f, 20f), cornerRadius = CornerRadius(4f, 4f))
+        drawRoundRect(color = Color.DarkGray, topLeft = Offset(22f, 0f), size = Size(18f, 40f), cornerRadius = CornerRadius(2f, 2f))
+        drawRect(color = Color.Black, topLeft = Offset(10f, 18f), size = Size(14f, 4f))
     }
 }
 
 @Composable
-fun BankVaultIcon() {
+fun BankVaultIcon(entropy: Double) {
+    // Forgó animáció a tárcsához
+    val rotationAngle by animateFloatAsState(
+        targetValue = (entropy * 18).toFloat(), // Gépelésre gyorsan forog
+        animationSpec = tween(600, easing = FastOutSlowInEasing)
+    )
+    
     Canvas(modifier = Modifier.size(40.dp)) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = size.width / 2f
         drawCircle(color = Color.DarkGray, radius = radius, center = center)
         drawCircle(color = Color.Gray, radius = radius * 0.8f, center = center, style = Stroke(width = 4f))
         drawCircle(color = Color(0xFF4DB6AC), radius = radius * 0.2f, center = center)
-        for (i in 0 until 6) {
-            val angle = i * (Math.PI / 3).toFloat()
-            drawLine(
-                color = Color.Gray,
-                start = center,
-                end = Offset(center.x + radius * 0.7f * cos(angle), center.y + radius * 0.7f * sin(angle)),
-                strokeWidth = 3f,
-                cap = StrokeCap.Round
-            )
+        
+        rotate(rotationAngle, center) {
+            for (i in 0 until 6) {
+                val angle = i * (Math.PI / 3).toFloat()
+                drawLine(
+                    color = Color.LightGray,
+                    start = center,
+                    end = Offset(center.x + radius * 0.7f * cos(angle), center.y + radius * 0.7f * sin(angle)),
+                    strokeWidth = 3f,
+                    cap = StrokeCap.Round
+                )
+            }
         }
     }
 }
-
-// ==========================================
-// TOVÁBBI KÉPERNYŐK (Kereső, Felismerő)
-// ==========================================
 
 @Composable
 fun HomeScreen(exoPlayer: ExoPlayer?) {
@@ -513,46 +500,67 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     fun playSongAndFetchLyrics(index: Int) {
         val song = searchResults[index]
         activeSongIndex = index
-        currentLyrics = "Zene és stream keresése a szervereken..."
+        currentLyrics = "Hanganyag felkutatása Invidious/Piped szervereken..."
         exoPlayer?.stop()
         
         coroutineScope.launch {
-            try {
-                val instances = listOf("pipedapi.kavin.rocks", "pipedapi.smnz.de", "api.piped.projectsegfau.lt", "piped-api.garudalinux.org")
-                var playUrl = ""
-                
-                for (instance in instances) {
+            var playUrl = ""
+            
+            // 1. Esély: Invidious API szerverek (sokkal stabilabbak zene kinyerésre)
+            val invidiousInstances = listOf("invidious.jing.rocks", "inv.tux.pizza", "invidious.nerdvpn.de", "invidious.privacydev.net")
+            for (instance in invidiousInstances) {
+                try {
+                    val req = Request.Builder().url("https://$instance/api/v1/videos/${song.audioUrl}").build()
+                    val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
+                    if (res.isSuccessful) {
+                        val json = JSONObject(res.body?.string() ?: "")
+                        val formats = json.optJSONArray("adaptiveFormats")
+                        if (formats != null) {
+                            for (i in 0 until formats.length()) {
+                                val format = formats.getJSONObject(i)
+                                if (format.optString("type").startsWith("audio")) {
+                                    playUrl = format.optString("url")
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    if (playUrl.isNotEmpty()) break
+                } catch (e: Exception) { continue }
+            }
+
+            // 2. Esély: Piped API ha az Invidious is cserben hagy
+            if (playUrl.isEmpty()) {
+                val pipedInstances = listOf("pipedapi.kavin.rocks", "pipedapi.smnz.de", "api.piped.projectsegfau.lt")
+                for (instance in pipedInstances) {
                     try {
-                        val streamRequest = Request.Builder().url("https://$instance/streams/${song.audioUrl}").build()
-                        val streamResponse = withContext(Dispatchers.IO) { sharedHttpClient.newCall(streamRequest).execute() }
-                        if (streamResponse.isSuccessful) {
-                            val streamJson = JSONObject(streamResponse.body?.string() ?: "")
-                            val audioStreams = streamJson.optJSONArray("audioStreams")
-                            if (audioStreams != null && audioStreams.length() > 0) {
-                                playUrl = audioStreams.getJSONObject(0).optString("url")
+                        val req = Request.Builder().url("https://$instance/streams/${song.audioUrl}").build()
+                        val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
+                        if (res.isSuccessful) {
+                            val streams = JSONObject(res.body?.string() ?: "").optJSONArray("audioStreams")
+                            if (streams != null && streams.length() > 0) {
+                                playUrl = streams.getJSONObject(0).optString("url")
                                 break
                             }
                         }
                     } catch (e: Exception) { continue }
                 }
-                
-                if (playUrl.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        exoPlayer?.setMediaItem(MediaItem.fromUri(playUrl))
-                        exoPlayer?.prepare()
-                        exoPlayer?.play()
-                        currentLyrics = "Dalszöveg betöltése..."
-                    }
-                } else {
-                    currentLyrics = "Hiba: Egyik stream szerver sem válaszolt. Próbáld újra később."
+            }
+            
+            if (playUrl.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    exoPlayer?.setMediaItem(MediaItem.fromUri(playUrl))
+                    exoPlayer?.prepare()
+                    exoPlayer?.play()
+                    currentLyrics = "Dalszöveg betöltése..."
                 }
-            } catch (e: Exception) {
-                currentLyrics = "Hiba a lejátszás betöltésekor."
+            } else {
+                currentLyrics = "Hiba: Sajnos egyetlen független streamszerver sem tudta lekérni ezt a dalt. Próbálj rákeresni egy másik verzióra."
             }
 
             val lyrics = fetchLyrics(song.artist, song.title)
-            if (currentLyrics != "Hiba: Egyik stream szerver sem válaszolt. Próbáld újra később.") {
-                currentLyrics = lyrics ?: "Nincs elérhető dalszöveg."
+            if (currentLyrics != "Hiba: Sajnos egyetlen független streamszerver sem tudta lekérni ezt a dalt. Próbálj rákeresni egy másik verzióra.") {
+                currentLyrics = lyrics ?: "Nincs elérhető dalszöveg ehhez a dalhoz."
             }
         }
     }
@@ -561,7 +569,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("Keresés a YouTube-on (pl. Azahriah)...") },
+            label = { Text("Keresés (pl. Azahriah - 3 korty)...") },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = {
@@ -649,7 +657,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                     val song = searchResults[index]
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
-                            Toast.makeText(context, "Zene indítása...", Toast.LENGTH_SHORT).show()
                             playSongAndFetchLyrics(index)
                         }
                     ) {
@@ -765,18 +772,23 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                 if (permCheck == PackageManager.PERMISSION_GRANTED) {
                     if (!isListening) {
                         isListening = true
-                        status = "Hang rögzítése (5 másodperc)..."
+                        status = "Hang rögzítése tisztább minőségben (7 másodperc)..."
                         coroutineScope.launch {
-                            val audioFile = File(context.cacheDir, "record.m4a")
+                            val audioFile = File(context.cacheDir, "record.mp4")
                             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()
                             try {
+                                // Megemelt minőség a pontosabb AI felismeréshez
                                 recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
                                 recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                                 recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                recorder.setAudioEncodingBitRate(128000)
+                                recorder.setAudioSamplingRate(44100) 
                                 recorder.setOutputFile(audioFile.absolutePath)
                                 recorder.prepare()
                                 recorder.start()
-                                delay(5000)
+                                
+                                delay(7000) // Hosszabb felvétel az analizáláshoz
+                                
                                 recorder.stop()
                                 recorder.release()
                                 
@@ -789,37 +801,45 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                 }
                                 
                                 if (queryStr != null) {
-                                    status = "Megvan: $queryStr. YouTube keresés..."
+                                    status = "Megvan: $queryStr. Betöltés a lejátszóba..."
                                     val songs = searchYouTubeDirectly(queryStr)
                                     if (songs.isNotEmpty()) {
-                                        status = "Lejátszás: ${songs[0].title}"
-                                        val instances = listOf("pipedapi.kavin.rocks", "pipedapi.smnz.de", "api.piped.projectsegfau.lt")
+                                        // Átváltunk a Kereső fül logikájához Invidious-al
+                                        var playUrl = ""
+                                        val instances = listOf("invidious.jing.rocks", "inv.tux.pizza")
                                         for (instance in instances) {
                                             try {
-                                                val req = Request.Builder().url("https://$instance/streams/${songs[0].audioUrl}").build()
+                                                val req = Request.Builder().url("https://$instance/api/v1/videos/${songs[0].audioUrl}").build()
                                                 val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
                                                 if (res.isSuccessful) {
-                                                    val url = JSONObject(res.body?.string() ?: "").optJSONArray("audioStreams")?.getJSONObject(0)?.optString("url")
-                                                    if (!url.isNullOrEmpty()) {
-                                                        withContext(Dispatchers.Main) {
-                                                            exoPlayer?.setMediaItem(MediaItem.fromUri(url))
-                                                            exoPlayer?.prepare()
-                                                            exoPlayer?.play()
-                                                        }
+                                                    val format = JSONObject(res.body?.string() ?: "").optJSONArray("adaptiveFormats")?.getJSONObject(0)
+                                                    if (format != null) {
+                                                        playUrl = format.optString("url")
                                                         break
                                                     }
                                                 }
                                             } catch (e: Exception) {}
                                         }
+                                        
+                                        if (playUrl.isNotEmpty()) {
+                                            status = "Lejátszás: ${songs[0].title}"
+                                            withContext(Dispatchers.Main) {
+                                                exoPlayer?.setMediaItem(MediaItem.fromUri(playUrl))
+                                                exoPlayer?.prepare()
+                                                exoPlayer?.play()
+                                            }
+                                        } else {
+                                            status = "Találat megvan ($queryStr), de a stream nem indul."
+                                        }
                                     } else {
                                         status = "A YouTube-on sem található."
                                     }
                                 } else {
-                                    status = "Sem az AudD, sem a Gemini nem ismerte fel."
+                                    status = "Sajnos túl nagy a háttérzaj, egyik AI sem ismerte fel."
                                 }
                             } catch (e: Exception) {
-                                status = "Hiba történt a felvételkor."
-                                recorder.release()
+                                status = "Hiba történt a felvételkor: ${e.message}"
+                                try { recorder.release() } catch (ex: Exception) {}
                             } finally {
                                 isListening = false
                                 if (audioFile.exists()) audioFile.delete()
