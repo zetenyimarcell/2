@@ -13,7 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -227,7 +227,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
             Text("Nincs fiókod? Regisztráció (Vault)")
         }
 
-        Divider(modifier = Modifier.padding(vertical = 12.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
         
         OutlinedButton(
             onClick = {
@@ -259,7 +259,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
 // ==========================================
 // VAULT REGISZTRÁCIÓ (ANIMÁLT JELSZÓMÉRŐ)
 // ==========================================
-@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     var email by remember { mutableStateOf("") }
@@ -268,8 +267,8 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     var errorMessage by remember { mutableStateOf("") }
     val auth = FirebaseAuth.getInstance()
 
-    // Entrópia (Bits) számítás a videó logikája alapján
-    var entropy by remember { mutableDoubleStateOf(0.0) }
+    // Entrópia (Bits) számítás
+    var entropy by remember { mutableStateOf(0.0) }
     LaunchedEffect(password) {
         if (password.isEmpty()) {
             entropy = 0.0
@@ -285,11 +284,11 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
 
     // Tiers meghatározása bits alapján
     val tier = when {
-        entropy < 1 -> 0  // No lock
-        entropy < 30 -> 1 // Paperclip
-        entropy < 50 -> 2 // Padlock
-        entropy < 70 -> 3 // Deadbolt
-        else -> 4         // Bank vault
+        entropy < 1 -> 0  
+        entropy < 30 -> 1 
+        entropy < 50 -> 2 
+        entropy < 70 -> 3 
+        else -> 4         
     }
 
     val tierName = when (tier) {
@@ -312,11 +311,11 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     }
 
     val tierColor = when (tier) {
-        0 -> Color(0xFF555555) // Gray
-        1 -> Color(0xFFE57373) // Red-ish
-        2 -> Color(0xFFFFB74D) // Orange
-        3 -> Color(0xFFFFD54F) // Yellow
-        else -> Color(0xFF4DB6AC) // Teal/Vault Green
+        0 -> Color(0xFF555555) 
+        1 -> Color(0xFFE57373) 
+        2 -> Color(0xFFFFB74D) 
+        3 -> Color(0xFFFFD54F) 
+        else -> Color(0xFF4DB6AC) 
     }
 
     val animatedColor by animateColorAsState(targetValue = tierColor, animationSpec = tween(500))
@@ -369,28 +368,21 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
             modifier = Modifier.fillMaxWidth().border(1.dp, animatedColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).background(Color(0xFF1A1C29), RoundedCornerShape(12.dp)).padding(16.dp)
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                // Bal oldali animált Ikon doboz
                 Box(
                     modifier = Modifier.size(70.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF252836)),
                     contentAlignment = Alignment.Center
                 ) {
-                    AnimatedContent(
-                        targetState = tier,
-                        transitionSpec = { fadeIn(tween(400)) + scaleIn(tween(400)) togetherWith fadeOut(tween(400)) + scaleOut(tween(400)) }
-                    ) { targetTier ->
-                        when (targetTier) {
-                            0 -> Icon(Icons.Default.DoorSliding, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(40.dp))
-                            1 -> Icon(Icons.Default.AttachFile, contentDescription = null, tint = Color(0xFFE57373), modifier = Modifier.size(40.dp))
-                            2 -> Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(40.dp))
-                            3 -> DeadboltIcon()
-                            4 -> BankVaultIcon()
-                        }
+                    when (tier) {
+                        0 -> Icon(Icons.Default.DoorSliding, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(40.dp))
+                        1 -> Icon(Icons.Default.AttachFile, contentDescription = null, tint = Color(0xFFE57373), modifier = Modifier.size(40.dp))
+                        2 -> Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(40.dp))
+                        3 -> DeadboltIcon()
+                        else -> BankVaultIcon()
                     }
                 }
 
                 Spacer(modifier = Modifier.width(16.dp))
 
-                // Jobb oldali szövegek és Playhead bárok
                 Column(modifier = Modifier.weight(1f)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         repeat(4) { index ->
@@ -430,31 +422,44 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     }
 }
 
-// Egyedi Canvas Ikonok a Vault animációhoz
 @Composable
 fun DeadboltIcon() {
     Canvas(modifier = Modifier.size(40.dp)) {
-        drawRoundRect(color = Color.LightGray, topLeft = Offset(0f, 10.dp.toPx()), size = Size(20.dp.toPx(), 20.dp.toPx()), cornerRadius = CornerRadius(4.dp.toPx()))
-        drawRoundRect(color = Color.DarkGray, topLeft = Offset(22.dp.toPx()), size = Size(18.dp.toPx(), 40.dp.toPx()), cornerRadius = CornerRadius(2.dp.toPx()))
-        drawRect(color = Color.Black, topLeft = Offset(10.dp.toPx(), 18.dp.toPx()), size = Size(14.dp.toPx(), 4.dp.toPx())) // Retesz
+        drawRoundRect(
+            color = Color.LightGray,
+            topLeft = Offset(0f, 10f),
+            size = Size(20f, 20f),
+            cornerRadius = CornerRadius(4f, 4f)
+        )
+        drawRoundRect(
+            color = Color.DarkGray,
+            topLeft = Offset(22f, 0f),
+            size = Size(18f, 40f),
+            cornerRadius = CornerRadius(2f, 2f)
+        )
+        drawRect(
+            color = Color.Black,
+            topLeft = Offset(10f, 18f),
+            size = Size(14f, 4f)
+        )
     }
 }
 
 @Composable
 fun BankVaultIcon() {
     Canvas(modifier = Modifier.size(40.dp)) {
-        val center = Offset(size.width / 2, size.height / 2)
-        val radius = size.width / 2
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val radius = size.width / 2f
         drawCircle(color = Color.DarkGray, radius = radius, center = center)
-        drawCircle(color = Color.Gray, radius = radius * 0.8f, center = center, style = Stroke(width = 4.dp.toPx()))
+        drawCircle(color = Color.Gray, radius = radius * 0.8f, center = center, style = Stroke(width = 4f))
         drawCircle(color = Color(0xFF4DB6AC), radius = radius * 0.2f, center = center)
         for (i in 0 until 6) {
-            val angle = i * (Math.PI / 3)
+            val angle = i * (Math.PI / 3).toFloat()
             drawLine(
                 color = Color.Gray,
                 start = center,
-                end = Offset(center.x + (radius * 0.7f * cos(angle)).toFloat(), center.y + (radius * 0.7f * sin(angle)).toFloat()),
-                strokeWidth = 3.dp.toPx(),
+                end = Offset(center.x + radius * 0.7f * cos(angle), center.y + radius * 0.7f * sin(angle)),
+                strokeWidth = 3f,
                 cap = StrokeCap.Round
             )
         }
@@ -513,7 +518,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         
         coroutineScope.launch {
             try {
-                // TÖBBSZÖRÖS FALLBACK LOGIKA a lejátszáshoz
                 val instances = listOf("pipedapi.kavin.rocks", "pipedapi.smnz.de", "api.piped.projectsegfau.lt", "piped-api.garudalinux.org")
                 var playUrl = ""
                 
@@ -526,7 +530,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                             val audioStreams = streamJson.optJSONArray("audioStreams")
                             if (audioStreams != null && audioStreams.length() > 0) {
                                 playUrl = audioStreams.getJSONObject(0).optString("url")
-                                break // Megtaláltuk a működő streamet!
+                                break
                             }
                         }
                     } catch (e: Exception) { continue }
@@ -664,7 +668,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     }
 }
 
-// YT Scraper
 suspend fun searchYouTubeDirectly(query: String): List<Song> = withContext(Dispatchers.IO) {
     try {
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
@@ -778,11 +781,11 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                 recorder.release()
                                 
                                 status = "AudD zenefelismerő indítása..."
-                                var queryStr = recognizeWithAudD(audioFile) // 1. próba: AudD ujjlenyomat
+                                var queryStr = recognizeWithAudD(audioFile)
                                 
                                 if (queryStr == null) {
                                     status = "AudD nem találta, átadás a Gemini AI-nak..."
-                                    queryStr = recognizeWithGeminiFallback(audioFile) // 2. próba: Gemini AI
+                                    queryStr = recognizeWithGeminiFallback(audioFile)
                                 }
                                 
                                 if (queryStr != null) {
