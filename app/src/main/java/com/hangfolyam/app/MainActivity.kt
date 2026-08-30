@@ -258,7 +258,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
     
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableStateOf(0f) }
-    var duration by remember { mutableSizeOf(1f) }
+    var duration by remember { mutableStateOf(1f) } // <-- JAVÍTVA mutableStateOf-ra
 
     val coroutineScope = rememberCoroutineScope()
 
@@ -329,11 +329,9 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                         isSearching = true
                         aiStatus = "Gemini AI optimalizálja a keresést..."
                         coroutineScope.launch {
-                            // 1. Gemini AI átalakítja és okosabbá teszi a keresőkifejezést
                             val optimizedQuery = optimizeSearchWithGemini(query)
                             aiStatus = "Keresés a YouTube-on: '$optimizedQuery'"
                             
-                            // 2. Keresés a YouTube-on a Gemini által tisztított kifejezéssel
                             searchResults = searchYouTubeSongs(optimizedQuery)
                             isSearching = false
                             aiStatus = null
@@ -478,7 +476,7 @@ suspend fun optimizeSearchWithGemini(userQuery: String): String = withContext(Di
     } catch (e: Exception) {
         e.printStackTrace()
     }
-    return@withContext userQuery // Ha hiba történik, az eredeti query-vel keres
+    return@withContext userQuery
 }
 
 suspend fun searchYouTubeSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
@@ -599,14 +597,12 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                     if (recognitionResult != null) {
                                         status = "Felismerve: ${recognitionResult.first} - ${recognitionResult.second}. Keresés YouTube-on..."
                                         
-                                        // Gemini AI-val tisztítjuk a felismerett dalt, majd indítjuk
                                         val queryToSearch = "${recognitionResult.first} ${recognitionResult.second}"
                                         val optimized = optimizeSearchWithGemini(queryToSearch)
                                         val songs = searchYouTubeSongs(optimized)
                                         
                                         if (songs.isNotEmpty()) {
                                             status = "Lejátszás: ${songs[0].title}"
-                                            // Stream lekérése és lejátszása
                                             val streamReq = Request.Builder().url("https://pipedapi.kavin.rocks/streams/${songs[0].audioUrl}").build()
                                             val streamRes = withContext(Dispatchers.IO) { sharedHttpClient.newCall(streamReq).execute() }
                                             if (streamRes.isSuccessful) {
