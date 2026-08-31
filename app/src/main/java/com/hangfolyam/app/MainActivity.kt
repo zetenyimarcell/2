@@ -7,6 +7,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.util.Base64
+import android.view.SoundEffectConstants
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -44,6 +45,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -343,6 +345,7 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     val auth = FirebaseAuth.getInstance()
+    val view = LocalView.current
 
     var entropy by remember { mutableStateOf(0.0) }
     LaunchedEffect(password) {
@@ -364,6 +367,17 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
         entropy < 50 -> 2 
         entropy < 70 -> 3 
         else -> 4         
+    }
+    
+    // Hangeffektus lejátszása szintlépéskor
+    LaunchedEffect(tier) {
+        if (entropy > 0) {
+            view.playSoundEffect(SoundEffectConstants.CLICK)
+            if (tier == 4) {
+                delay(150) // Dupla kattanás a legerősebb szintnél
+                view.playSoundEffect(SoundEffectConstants.CLICK)
+            }
+        }
     }
 
     val tierName = when (tier) {
@@ -558,14 +572,17 @@ fun AnimatedPaperclipIcon(entropy: Double) {
 
 @Composable
 fun AnimatedPadlockIcon(entropy: Double) {
-    val shackleOffset by animateFloatAsState(
-        targetValue = if (entropy > 35) 0f else -6.dp.toPx(),
+    val shackleTarget = if (entropy > 35) 0.dp else (-6).dp
+    val shackleOffsetDp by animateDpAsState(
+        targetValue = shackleTarget,
         animationSpec = tween(300),
         label = "shackle"
     )
     Canvas(modifier = Modifier.size(44.dp)) {
         val w = size.width
         val h = size.height
+        val shackleOffset = shackleOffsetDp.toPx()
+        
         val path = Path().apply {
             moveTo(w * 0.3f, h * 0.45f + shackleOffset)
             lineTo(w * 0.3f, h * 0.3f + shackleOffset)
@@ -586,14 +603,17 @@ fun AnimatedPadlockIcon(entropy: Double) {
 
 @Composable
 fun AnimatedDeadboltIcon(entropy: Double) {
-    val slideOffset by animateFloatAsState(
-        targetValue = (((entropy - 50) / 20) * 10.dp.toPx()).toFloat().coerceIn(0f, 12.dp.toPx()),
+    val slideTargetDp = (((entropy - 50) / 20) * 10).toFloat().coerceIn(0f, 12f).dp
+    val slideOffsetDp by animateDpAsState(
+        targetValue = slideTargetDp,
         animationSpec = tween(300),
         label = "deadbolt"
     )
     Canvas(modifier = Modifier.size(44.dp)) {
         val w = size.width
         val h = size.height
+        val slideOffset = slideOffsetDp.toPx()
+        
         drawRoundRect(
             color = Color(0xFFFFD54F),
             topLeft = Offset(w * 0.1f, h * 0.2f),
