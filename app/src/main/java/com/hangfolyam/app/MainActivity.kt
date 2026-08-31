@@ -1,5 +1,6 @@
 package com.hangfolyam.app
 
+import androidx.compose.foundation.BorderStroke
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
