@@ -1,6 +1,5 @@
 package com.hangfolyam.app
 
-import androidx.compose.foundation.BorderStroke
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
@@ -14,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,6 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -41,11 +43,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -143,13 +144,13 @@ fun AppNavigation(exoPlayer: ExoPlayer?) {
                     )
                     NavigationBarItem(
                         selected = selectedTab == 1,
-                        onClick = { selectedTab == 1 },
+                        onClick = { selectedTab = 1 },
                         icon = { Icon(Icons.Default.Search, contentDescription = "Kereső") },
                         label = { Text("Kereső") }
                     )
                     NavigationBarItem(
                         selected = selectedTab == 2,
-                        onClick = { selectedTab == 2 },
+                        onClick = { selectedTab = 2 },
                         icon = { Icon(Icons.Default.Mic, contentDescription = "Felismerő") },
                         label = { Text("Felismerő") }
                     )
@@ -162,7 +163,7 @@ fun AppNavigation(exoPlayer: ExoPlayer?) {
                 }
             }
         ) { innerPadding ->
-            Box(modifier = Modifier.padding(innerPadding)) {
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 when (selectedTab) {
                     0 -> HomeScreen(exoPlayer)
                     1 -> SearchScreen(exoPlayer)
@@ -187,7 +188,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
     var errorMessage by remember { mutableStateOf("") }
     val auth = FirebaseAuth.getInstance()
 
-    // Pulzáló animáció a logóhoz
     val infiniteTransition = rememberInfiniteTransition(label = "login_pulse")
     val scaleAnim by infiniteTransition.animateFloat(
         initialValue = 0.95f,
@@ -208,7 +208,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Animált logó ikon
         Box(
             modifier = Modifier
                 .size(90.dp)
@@ -306,7 +305,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
                 if (activity != null) {
                     try {
                         val provider = OAuthProvider.newBuilder("google.com")
-                        provider.addCustomParameter("prompt", "select_account") // Fiókválasztó kényszerítése
+                        provider.addCustomParameter("prompt", "select_account")
                         
                         auth.startActivityForSignInWithProvider(activity, provider.build())
                             .addOnSuccessListener { onLoginSuccess() }
@@ -355,7 +354,7 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
             if (password.any { it.isUpperCase() }) pool += 26
             if (password.any { it.isDigit() }) pool += 10
             if (password.any { !it.isLetterOrDigit() }) pool += 32
-            entropy = password.length * log2(pool.toDouble())
+            entropy = password.length * log2(pool.toDouble().coerceAtLeast(1.0))
         }
     }
 
@@ -394,7 +393,7 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
         else -> Color(0xFF4DB6AC) 
     }
 
-    val animatedColor by animateColorAsState(targetValue = tierColor, animationSpec = tween(500))
+    val animatedColor by animateColorAsState(targetValue = tierColor, animationSpec = tween(500), label = "tierColor")
 
     Column(
         modifier = Modifier.fillMaxSize().background(Color(0xFF0F101A)).padding(24.dp).verticalScroll(rememberScrollState()),
@@ -462,7 +461,7 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         repeat(4) { index ->
                             val isActive = tier >= (index + 1)
-                            val barColor by animateColorAsState(if (isActive) tierColor else Color(0xFF252836), tween(400))
+                            val barColor by animateColorAsState(if (isActive) tierColor else Color(0xFF252836), tween(400), label = "barColor")
                             Box(modifier = Modifier.weight(1f).height(4.dp).padding(horizontal = 2.dp).clip(CircleShape).background(barColor))
                         }
                     }
@@ -499,102 +498,144 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
 
 @Composable
 fun AnimatedDoorIcon(entropy: Double) {
-    val rotation by animateFloatAsState(targetValue = (entropy * 5).toFloat().coerceAtMost(60f), animationSpec = tween(300))
-    Canvas(modifier = Modifier.size(40.dp)) {
-        val scaleX = size.width / 40f
-        val scaleY = size.height / 40f
-        scale(scaleX, scaleY, pivot = Offset.Zero) {
-            drawRect(color = Color.DarkGray, topLeft = Offset(8f, 4f), size = Size(24f, 32f), style = Stroke(width = 3f))
-            rotate(rotation, pivot = Offset(8f, 20f)) {
-                drawRect(color = Color.Gray, topLeft = Offset(8f, 4f), size = Size(24f, 32f))
-                drawCircle(color = Color.Black, radius = 2f, center = Offset(28f, 20f))
-            }
+    val rotation by animateFloatAsState(
+        targetValue = (50f - (entropy * 25).toFloat()).coerceIn(0f, 50f),
+        animationSpec = tween(300),
+        label = "doorRotation"
+    )
+    Canvas(modifier = Modifier.size(44.dp)) {
+        val w = size.width
+        val h = size.height
+        val strokeWidth = 3.dp.toPx()
+        
+        drawRect(
+            color = Color.Gray,
+            topLeft = Offset(w * 0.2f, h * 0.1f),
+            size = Size(w * 0.6f, h * 0.8f),
+            style = Stroke(width = strokeWidth)
+        )
+        
+        rotate(rotation, pivot = Offset(w * 0.2f, h * 0.5f)) {
+            drawRect(
+                color = Color(0xFF8D6E63),
+                topLeft = Offset(w * 0.2f, h * 0.1f),
+                size = Size(w * 0.6f, h * 0.8f)
+            )
+            drawCircle(
+                color = Color.Yellow,
+                radius = 2.5.dp.toPx(),
+                center = Offset(w * 0.7f, h * 0.5f)
+            )
         }
     }
 }
 
 @Composable
 fun AnimatedPaperclipIcon(entropy: Double) {
-    val twistAngle by animateFloatAsState(targetValue = (entropy * 15).toFloat(), animationSpec = tween(500, easing = LinearOutSlowInEasing))
-    Canvas(modifier = Modifier.size(40.dp)) {
-        val scaleX = size.width / 40f
-        val scaleY = size.height / 40f
-        scale(scaleX, scaleY, pivot = Offset.Zero) {
+    val twistAngle by animateFloatAsState(
+        targetValue = (entropy * 8).toFloat(),
+        animationSpec = tween(400),
+        label = "clipTwist"
+    )
+    Canvas(modifier = Modifier.size(44.dp)) {
+        val w = size.width
+        val h = size.height
+        val stroke = 3.dp.toPx()
+        rotate(twistAngle, pivot = Offset(w / 2, h / 2)) {
             val path = Path().apply {
-                moveTo(14f, 10f)
-                lineTo(14f, 30f)
-                quadraticBezierTo(14f, 36f, 20f, 36f)
-                quadraticBezierTo(26f, 36f, 26f, 30f)
-                lineTo(26f, 14f)
-                quadraticBezierTo(26f, 6f, 20f, 6f)
-                quadraticBezierTo(14f, 6f, 14f, 14f)
+                moveTo(w * 0.35f, h * 0.3f)
+                lineTo(w * 0.35f, h * 0.7f)
+                quadraticBezierTo(w * 0.35f, h * 0.85f, w * 0.5f, h * 0.85f)
+                quadraticBezierTo(w * 0.65f, h * 0.85f, w * 0.65f, h * 0.7f)
+                lineTo(w * 0.65f, h * 0.25f)
+                quadraticBezierTo(w * 0.65f, h * 0.15f, w * 0.5f, h * 0.15f)
+                quadraticBezierTo(w * 0.35f, h * 0.15f, w * 0.35f, h * 0.25f)
             }
-            rotate(twistAngle, pivot = Offset(20f, 20f)) {
-                drawPath(path, color = Color(0xFFE57373), style = Stroke(width = 3f, cap = StrokeCap.Round))
-            }
+            drawPath(path, color = Color(0xFFE57373), style = Stroke(width = stroke, cap = StrokeCap.Round))
         }
     }
 }
 
 @Composable
 fun AnimatedPadlockIcon(entropy: Double) {
-    val shackleOffset by animateFloatAsState(targetValue = if (entropy > 40) 0f else -6f, animationSpec = tween(300, easing = FastOutSlowInEasing))
-    val shake by animateFloatAsState(targetValue = (entropy * 2).toFloat() % 5f, animationSpec = tween(100))
-    Canvas(modifier = Modifier.size(40.dp)) {
-        val scaleX = size.width / 40f
-        val scaleY = size.height / 40f
-        scale(scaleX, scaleY, pivot = Offset.Zero) {
-            translate(left = shake) {
-                val path = Path().apply {
-                    moveTo(12f, 18f + shackleOffset)
-                    lineTo(12f, 12f + shackleOffset)
-                    quadraticBezierTo(12f, 4f + shackleOffset, 20f, 4f + shackleOffset)
-                    quadraticBezierTo(28f, 4f + shackleOffset, 28f, 12f + shackleOffset)
-                    lineTo(28f, 18f + shackleOffset)
-                }
-                drawPath(path, color = Color.LightGray, style = Stroke(width = 4f, cap = StrokeCap.Round))
-                drawRoundRect(color = Color(0xFFFFB74D), topLeft = Offset(8f, 18f), size = Size(24f, 18f), cornerRadius = CornerRadius(4f, 4f))
-                drawCircle(color = Color.DarkGray, radius = 2f, center = Offset(20f, 27f))
-            }
+    val shackleOffset by animateFloatAsState(
+        targetValue = if (entropy > 35) 0f else -6.dp.toPx(),
+        animationSpec = tween(300),
+        label = "shackle"
+    )
+    Canvas(modifier = Modifier.size(44.dp)) {
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(w * 0.3f, h * 0.45f + shackleOffset)
+            lineTo(w * 0.3f, h * 0.3f + shackleOffset)
+            quadraticBezierTo(w * 0.3f, h * 0.12f + shackleOffset, w * 0.5f, h * 0.12f + shackleOffset)
+            quadraticBezierTo(w * 0.7f, h * 0.12f + shackleOffset, w * 0.7f, h * 0.3f + shackleOffset)
+            lineTo(w * 0.7f, h * 0.45f + shackleOffset)
         }
+        drawPath(path, color = Color.LightGray, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
+        drawRoundRect(
+            color = Color(0xFFFFB74D),
+            topLeft = Offset(w * 0.2f, h * 0.45f),
+            size = Size(w * 0.6f, h * 0.45f),
+            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+        )
+        drawCircle(color = Color.Black, radius = 2.5.dp.toPx(), center = Offset(w * 0.5f, h * 0.65f))
     }
 }
 
 @Composable
 fun AnimatedDeadboltIcon(entropy: Double) {
-    val slideOffset by animateFloatAsState(targetValue = ((entropy - 50) / 2).toFloat().coerceIn(0f, 14f), animationSpec = tween(400))
-    Canvas(modifier = Modifier.size(40.dp)) {
-        val scaleX = size.width / 40f
-        val scaleY = size.height / 40f
-        scale(scaleX, scaleY, pivot = Offset.Zero) {
-            drawRoundRect(color = Color.LightGray, topLeft = Offset(4f, 10f), size = Size(24f, 20f), cornerRadius = CornerRadius(4f, 4f))
-            drawRoundRect(color = Color.DarkGray, topLeft = Offset(28f, 0f), size = Size(10f, 40f), cornerRadius = CornerRadius(2f, 2f))
-            drawRect(color = Color.Black, topLeft = Offset(6f + slideOffset, 16f), size = Size(18f, 8f))
-        }
+    val slideOffset by animateFloatAsState(
+        targetValue = (((entropy - 50) / 20) * 10.dp.toPx()).toFloat().coerceIn(0f, 12.dp.toPx()),
+        animationSpec = tween(300),
+        label = "deadbolt"
+    )
+    Canvas(modifier = Modifier.size(44.dp)) {
+        val w = size.width
+        val h = size.height
+        drawRoundRect(
+            color = Color(0xFFFFD54F),
+            topLeft = Offset(w * 0.1f, h * 0.2f),
+            size = Size(w * 0.55f, h * 0.6f),
+            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+        )
+        drawRoundRect(
+            color = Color.DarkGray,
+            topLeft = Offset(w * 0.75f, h * 0.1f),
+            size = Size(w * 0.2f, h * 0.8f),
+            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+        )
+        drawRect(
+            color = Color.LightGray,
+            topLeft = Offset(w * 0.2f + slideOffset, h * 0.4f),
+            size = Size(w * 0.5f, h * 0.2f)
+        )
     }
 }
 
 @Composable
 fun BankVaultIcon(entropy: Double) {
     val rotationAngle by animateFloatAsState(
-        targetValue = (entropy * 18).toFloat(),
-        animationSpec = tween(600, easing = FastOutSlowInEasing)
+        targetValue = (entropy * 15).toFloat(),
+        animationSpec = tween(500),
+        label = "vaultRotation"
     )
-    Canvas(modifier = Modifier.size(40.dp)) {
+    Canvas(modifier = Modifier.size(44.dp)) {
         val center = Offset(size.width / 2f, size.height / 2f)
-        val radius = size.width / 2f
-        drawCircle(color = Color.DarkGray, radius = radius, center = center)
-        drawCircle(color = Color.Gray, radius = radius * 0.8f, center = center, style = Stroke(width = 4f))
-        drawCircle(color = Color(0xFF4DB6AC), radius = radius * 0.2f, center = center)
+        val radius = size.width / 2.2f
+        drawCircle(color = Color(0xFF263238), radius = radius, center = center)
+        drawCircle(color = Color(0xFF4DB6AC), radius = radius * 0.85f, center = center, style = Stroke(width = 3.dp.toPx()))
+        drawCircle(color = Color(0xFF004D40), radius = radius * 0.25f, center = center)
         
         rotate(rotationAngle, center) {
             for (i in 0 until 6) {
                 val angle = i * (Math.PI / 3).toFloat()
                 drawLine(
-                    color = Color.LightGray,
+                    color = Color(0xFF80CBC4),
                     start = center,
-                    end = Offset(center.x + radius * 0.7f * cos(angle), center.y + radius * 0.7f * sin(angle)),
-                    strokeWidth = 3f,
+                    end = Offset(center.x + radius * 0.75f * cos(angle), center.y + radius * 0.75f * sin(angle)),
+                    strokeWidth = 3.dp.toPx(),
                     cap = StrokeCap.Round
                 )
             }
@@ -628,6 +669,20 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
 
     val coroutineScope = rememberCoroutineScope()
 
+    fun triggerSearch() {
+        if (query.isNotBlank()) {
+            isSearching = true
+            aiStatus = "Keresés a YouTube-on..."
+            coroutineScope.launch {
+                val optimizedQuery = optimizeSearchWithGemini(query)
+                searchResults = searchYouTubeDirectly(optimizedQuery)
+                if (searchResults.isEmpty()) searchResults = searchYouTubePiped(optimizedQuery)
+                aiStatus = if (searchResults.isEmpty()) "Nincs találat." else null
+                isSearching = false
+            }
+        }
+    }
+
     LaunchedEffect(exoPlayer) {
         while (true) {
             if (exoPlayer != null && exoPlayer.isPlaying) {
@@ -649,8 +704,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         
         coroutineScope.launch {
             var playUrl = ""
-            
-            // 1. Piped API példányok többfázisú lekérdezése a megbízhatóságért
             val pipedInstances = listOf(
                 "pipedapi.kavin.rocks", 
                 "api.piped.projectsegfau.lt", 
@@ -665,7 +718,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                         val json = JSONObject(res.body?.string() ?: "")
                         val audioStreams = json.optJSONArray("audioStreams")
                         if (audioStreams != null && audioStreams.length() > 0) {
-                            // A legjobb minőségű audio stream kiválasztása
                             playUrl = audioStreams.getJSONObject(0).optString("url")
                             if (playUrl.isNotEmpty()) break
                         }
@@ -673,7 +725,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                 } catch (e: Exception) { continue }
             }
 
-            // 2. Fallback: Invidious szerverek ha a Piped nem válaszol
             if (playUrl.isEmpty()) {
                 val invidiousInstances = listOf("invidious.nerdvpn.de", "invidious.jing.rocks", "inv.tux.pizza")
                 for (instance in invidiousInstances) {
@@ -722,20 +773,12 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
             onValueChange = { query = it },
             label = { Text("Keresés (pl. Azahriah - 3 korty)...") },
             trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = {
-                        isSearching = true
-                        aiStatus = "Keresés a YouTube-on..."
-                        coroutineScope.launch {
-                            val optimizedQuery = optimizeSearchWithGemini(query)
-                            searchResults = searchYouTubeDirectly(optimizedQuery)
-                            if (searchResults.isEmpty()) searchResults = searchYouTubePiped(optimizedQuery)
-                            aiStatus = if (searchResults.isEmpty()) "Nincs találat." else null
-                            isSearching = false
-                        }
-                    }) { Icon(Icons.Default.Search, contentDescription = "Keresés") }
+                IconButton(onClick = { triggerSearch() }) {
+                    Icon(Icons.Default.Search, contentDescription = "Keresés indítása")
                 }
             },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { triggerSearch() }),
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
@@ -902,82 +945,86 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
 
     Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Box(
-            modifier = Modifier.size(120.dp).background(if (isListening) Color.Red else MaterialTheme.colorScheme.primary, CircleShape).clickable {
-                val permCheck = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-                if (permCheck == PackageManager.PERMISSION_GRANTED) {
-                    if (!isListening) {
-                        isListening = true
-                        status = "Zene rögzítése (6 másodperc)..."
-                        coroutineScope.launch {
-                            val audioFile = File(context.cacheDir, "record.mp4")
-                            val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()
-                            try {
-                                recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
-                                recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                                recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                                recorder.setAudioEncodingBitRate(128000)
-                                recorder.setAudioSamplingRate(44100) 
-                                recorder.setOutputFile(audioFile.absolutePath)
-                                recorder.prepare()
-                                recorder.start()
-                                
-                                delay(6000) // 6 másodperc az optimális zene-részlethez
-                                
-                                recorder.stop()
-                                recorder.release()
-                                
-                                status = "Gemini AI elemzés folyamatban..."
-                                val queryStr = recognizeWithGeminiPrimary(audioFile)
-                                
-                                if (queryStr != null && !queryStr.contains("NINCS")) {
-                                    status = "Megvan: $queryStr. Keresés és indítás..."
-                                    val songs = searchYouTubeDirectly(queryStr)
-                                    if (songs.isNotEmpty()) {
-                                        var playUrl = ""
-                                        val pipedInstances = listOf("pipedapi.kavin.rocks", "api.piped.projectsegfau.lt", "pipedapi.smnz.de")
-                                        for (instance in pipedInstances) {
-                                            try {
-                                                val req = Request.Builder().url("https://$instance/streams/${songs[0].audioUrl}").build()
-                                                val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
-                                                if (res.isSuccessful) {
-                                                    val streams = JSONObject(res.body?.string() ?: "").optJSONArray("audioStreams")
-                                                    if (streams != null && streams.length() > 0) {
-                                                        playUrl = streams.getJSONObject(0).optString("url")
-                                                        break
+            modifier = Modifier
+                .size(130.dp)
+                .clip(CircleShape)
+                .background(if (isListening) Color.Red else MaterialTheme.colorScheme.primary)
+                .clickable {
+                    val permCheck = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                    if (permCheck == PackageManager.PERMISSION_GRANTED) {
+                        if (!isListening) {
+                            isListening = true
+                            status = "Zene rögzítése (6 másodperc)..."
+                            coroutineScope.launch {
+                                val audioFile = File(context.cacheDir, "record.mp4")
+                                val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()
+                                try {
+                                    recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+                                    recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                                    recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                    recorder.setAudioEncodingBitRate(128000)
+                                    recorder.setAudioSamplingRate(44100)
+                                    recorder.setOutputFile(audioFile.absolutePath)
+                                    recorder.prepare()
+                                    recorder.start()
+                                    
+                                    delay(6000)
+                                    
+                                    recorder.stop()
+                                    recorder.release()
+                                    
+                                    status = "Gemini AI elemzés folyamatban..."
+                                    val queryStr = recognizeWithGeminiPrimary(audioFile)
+                                    
+                                    if (queryStr != null && !queryStr.contains("NINCS")) {
+                                        status = "Megvan: $queryStr. Keresés és indítás..."
+                                        val songs = searchYouTubeDirectly(queryStr)
+                                        if (songs.isNotEmpty()) {
+                                            var playUrl = ""
+                                            val pipedInstances = listOf("pipedapi.kavin.rocks", "api.piped.projectsegfau.lt", "pipedapi.smnz.de")
+                                            for (instance in pipedInstances) {
+                                                try {
+                                                    val req = Request.Builder().url("https://$instance/streams/${songs[0].audioUrl}").build()
+                                                    val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
+                                                    if (res.isSuccessful) {
+                                                        val streams = JSONObject(res.body?.string() ?: "").optJSONArray("audioStreams")
+                                                        if (streams != null && streams.length() > 0) {
+                                                            playUrl = streams.getJSONObject(0).optString("url")
+                                                            if (playUrl.isNotEmpty()) break
+                                                        }
                                                     }
-                                                }
-                                            } catch (e: Exception) {}
-                                        }
+                                                } catch (e: Exception) {}
+                                            }
 
-                                        if (playUrl.isNotEmpty()) {
-                                            status = "Lejátszás: ${songs[0].title}"
-                                            withContext(Dispatchers.Main) {
-                                                exoPlayer?.setMediaItem(MediaItem.fromUri(playUrl))
-                                                exoPlayer?.prepare()
-                                                exoPlayer?.play()
+                                            if (playUrl.isNotEmpty()) {
+                                                status = "Lejátszás: ${songs[0].title}"
+                                                withContext(Dispatchers.Main) {
+                                                    exoPlayer?.setMediaItem(MediaItem.fromUri(playUrl))
+                                                    exoPlayer?.prepare()
+                                                    exoPlayer?.play()
+                                                }
+                                            } else {
+                                                status = "Találat megvan ($queryStr), de a stream szerverek elfoglaltak."
                                             }
                                         } else {
-                                            status = "Találat megvan ($queryStr), de a stream szerverek elfoglaltak."
+                                            status = "A YouTube-on nem található ez a szám."
                                         }
                                     } else {
-                                        status = "A YouTube-on nem található ez a szám."
+                                        status = "Nem sikerült azonosítani. Próbáld közelebb tartani a hangforráshoz!"
                                     }
-                                } else {
-                                    status = "Nem sikerült azonosítani. Próbáld közelebb tartani a hangforráshoz!"
+                                } catch (e: Exception) {
+                                    status = "Hiba történt a felvételkor: ${e.message}"
+                                    try { recorder.release() } catch (ex: Exception) {}
+                                } finally {
+                                    isListening = false
+                                    if (audioFile.exists()) audioFile.delete()
                                 }
-                            } catch (e: Exception) {
-                                status = "Hiba történt a felvételkor: ${e.message}"
-                                try { recorder.release() } catch (ex: Exception) {}
-                            } finally {
-                                isListening = false
-                                if (audioFile.exists()) audioFile.delete()
                             }
                         }
-                    }
-                } else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            },
+                    } else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                },
             contentAlignment = Alignment.Center
-        ) { Icon(Icons.Default.Mic, contentDescription = null, tint = Color.White, modifier = Modifier.size(60.dp)) }
+        ) { Icon(Icons.Default.Mic, contentDescription = "Mikrofon gomb", tint = Color.White, modifier = Modifier.size(65.dp)) }
         Spacer(modifier = Modifier.height(24.dp))
         Text(status, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 24.dp), textAlign = TextAlign.Center)
     }
