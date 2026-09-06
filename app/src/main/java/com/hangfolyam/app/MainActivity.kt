@@ -669,7 +669,7 @@ suspend fun searchYouTubeDirectly(query: String): List<Song> = withContext(Dispa
         val matcher = pattern.matcher(html)
         if (matcher.find()) {
             val json = JSONObject(matcher.group(1))
-            val contents = json.optJSONObject("contents")?.optJSONObject("twoColumnSearchResultsRenderer")?.optJSONObject("primaryContents")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")?.optJSONObject(0)?.optJSONObject("itemSectionRenderer")?.optJSONArray("contents")
+            val contents = json.optJSONObject("contents")?.optJSONObject("twoColumnSearchResultsRenderer")?.optJSONObject("primaryContents")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
             val list = mutableListOf<Song>()
             if (contents != null) {
                 for (i in 0 until contents.length()) {
@@ -714,9 +714,9 @@ suspend fun searchYouTubePiped(query: String): List<Song> = withContext(Dispatch
 suspend fun optimizeSearchWithGemini(userQuery: String): String = withContext(Dispatchers.IO) {
     try {
         val jsonBody = JSONObject().apply {
-            put("contents", org.json.JSONArray().put(JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", "Készíts ebből tiszta YouTube keresőkifejezést (csak előadó és cím): '$userQuery'")))))
+            put("contents", org.json.JSONArray().put(JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", "Készíts ebből tiszta YouTube keresőkifejezést (csak előadó és szám)")))))
         }
-        val mediaType = okhttp3.MediaType.Companion.toMediaTypeOrNull("application/json")
+        val mediaType = "application/json".toMediaTypeOrNull()
         val requestBody = jsonBody.toString().toRequestBody(mediaType)
         val request = Request.Builder()
             .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY")
@@ -850,7 +850,7 @@ suspend fun recognizeAudioWithGemini(audioFile: File): String = withContext(Disp
             put("contents", org.json.JSONArray().put(JSONObject().put("parts", parts)))
         }
 
-        val mediaType = okhttp3.MediaType.Companion.toMediaTypeOrNull("application/json")
+        val mediaType = "application/json".toMediaTypeOrNull()
         val requestBody = jsonBody.toString().toRequestBody(mediaType)
         val request = Request.Builder()
             .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY")
