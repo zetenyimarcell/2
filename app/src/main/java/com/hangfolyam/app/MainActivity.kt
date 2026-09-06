@@ -29,7 +29,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -227,7 +226,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
             Text("Nincs fiókod? Regisztráció (Vault)")
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.DarkGray)
+        Divider(modifier = Modifier.padding(vertical = 12.dp), color = Color.DarkGray)
         
         OutlinedButton(
             onClick = {
