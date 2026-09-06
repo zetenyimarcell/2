@@ -503,22 +503,36 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         
         coroutineScope.launch {
             try {
-                val instances = listOf("pipedapi.kavin.rocks", "pipedapi.smnz.de", "api.piped.projectsegfau.lt", "pipedapi.adminforge.de")
+                val instances = listOf(
+                    "api.piped.privacydev.net",
+                    "pipedapi.darkness.services",
+                    "piped-api.lunar.icu",
+                    "pipedapi.smnz.de",
+                    "pipedapi.kavin.rocks",
+                    "api.piped.projectsegfau.lt",
+                    "pipedapi.adminforge.de"
+                )
                 var playUrl = ""
                 
                 for (instance in instances) {
                     try {
                         val streamRequest = Request.Builder()
                             .url("https://$instance/streams/${song.audioUrl}")
-                            .header("User-Agent", "Mozilla/5.0")
+                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                             .build()
                         val streamResponse = withContext(Dispatchers.IO) { sharedHttpClient.newCall(streamRequest).execute() }
                         if (streamResponse.isSuccessful) {
-                            val streamJson = JSONObject(streamResponse.body?.string() ?: "")
+                            val responseBody = streamResponse.body?.string() ?: ""
+                            val streamJson = JSONObject(responseBody)
+                            
+                            if (streamJson.has("error")) continue
+                            
                             val audioStreams = streamJson.optJSONArray("audioStreams")
                             if (audioStreams != null && audioStreams.length() > 0) {
                                 playUrl = audioStreams.getJSONObject(0).optString("url")
-                                break
+                                if (playUrl.isNotEmpty()) {
+                                    break
+                                }
                             }
                         }
                     } catch (e: Exception) { continue }
@@ -689,7 +703,12 @@ suspend fun searchYouTubeDirectly(query: String): List<Song> = withContext(Dispa
 
 suspend fun searchYouTubePiped(query: String): List<Song> = withContext(Dispatchers.IO) {
     val list = mutableListOf<Song>()
-    val instances = listOf("pipedapi.kavin.rocks", "pipedapi.adminforge.de", "api.piped.projectsegfau.lt")
+    val instances = listOf(
+        "api.piped.privacydev.net",
+        "pipedapi.darkness.services",
+        "piped-api.lunar.icu",
+        "pipedapi.kavin.rocks"
+    )
     for (instance in instances) {
         try {
             val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
