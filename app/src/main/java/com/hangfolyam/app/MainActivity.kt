@@ -717,7 +717,7 @@ suspend fun searchYouTubePiped(query: String): List<Song> = withContext(Dispatch
 suspend fun optimizeSearchWithGemini(userQuery: String): String = withContext(Dispatchers.IO) {
     try {
         val jsonBody = JSONObject().apply {
-            put("contents", org.json.JSONArray().put(JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", "Készíts ebből tiszta YouTube keresőkifejezést (csak előadó és cím): '$userQuery'")))))
+            put("contents", org.json.JSONArray().put(JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", "Készíts ebből tiszta YouTube keresőkifejezést (csak előadó[...]
         }
         val mediaType = "application/json".toMediaTypeOrNull()
         val requestBody = jsonBody.toString().toRequestBody(mediaType)
