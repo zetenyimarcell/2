@@ -3,11 +3,12 @@ package com.hangfolyam.app
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.media.MediaRecorder
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.Bundle
 import android.util.Base64
-import android.view.SoundEffectConstants
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -42,10 +43,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -202,101 +204,49 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
     )
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0F101A))
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxSize().background(Color(0xFF0F101A)).padding(24.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Box(
-            modifier = Modifier
-                .size(90.dp)
-                .scale(scaleAnim)
-                .clip(CircleShape)
-                .background(Color(0xFF6B4EE6).copy(alpha = 0.2f)),
+            modifier = Modifier.size(90.dp).scale(scaleAnim).clip(CircleShape).background(Color(0xFF6B4EE6).copy(alpha = 0.2f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Lock,
-                contentDescription = null,
-                tint = Color(0xFF6B4EE6),
-                modifier = Modifier.size(45.dp)
-            )
+            Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF6B4EE6), modifier = Modifier.size(45.dp))
         }
 
         Spacer(modifier = Modifier.height(20.dp))
-        Text(
-            "Hangfolyam Vault",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = Color.White,
-            fontFamily = FontFamily.Monospace
-        )
-        Text(
-            "Biztonságos zenei élmény",
-            fontSize = 14.sp,
-            color = Color.Gray
-        )
-
+        Text("Hangfolyam Vault", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, fontFamily = FontFamily.Monospace)
+        Text("Biztonságos zenei élmény", fontSize = 14.sp, color = Color.Gray)
         Spacer(modifier = Modifier.height(32.dp))
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C29)),
-            shape = RoundedCornerShape(16.dp)
-        ) {
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C29)), shape = RoundedCornerShape(16.dp)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Email cím") },
-                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = Color.Gray) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF6B4EE6),
-                        unfocusedBorderColor = Color.DarkGray,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
+                    value = email, onValueChange = { email = it }, label = { Text("Email cím") },
+                    leadingIcon = { Icon(Icons.Default.Email, null, tint = Color.Gray) },
+                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF6B4EE6), unfocusedBorderColor = Color.DarkGray, focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-
                 OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Jelszó") },
-                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = Color.Gray) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF6B4EE6),
-                        unfocusedBorderColor = Color.DarkGray,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
+                    value = password, onValueChange = { password = it }, label = { Text("Jelszó") },
+                    leadingIcon = { Icon(Icons.Default.Lock, null, tint = Color.Gray) }, visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF6B4EE6), unfocusedBorderColor = Color.DarkGray, focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                 )
                 Spacer(modifier = Modifier.height(24.dp))
-
                 Button(
                     onClick = {
                         if (email.isNotEmpty() && password.isNotEmpty()) {
                             auth.signInWithEmailAndPassword(email, password)
                                 .addOnSuccessListener { onLoginSuccess() }
                                 .addOnFailureListener { errorMessage = it.localizedMessage ?: "Hiba történt" }
-                        } else {
-                            errorMessage = "Kérjük töltsd ki a mezőket!"
-                        }
+                        } else errorMessage = "Kérjük töltsd ki a mezőket!"
                     },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6B4EE6))
-                ) {
-                    Text("Bejelentkezés", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
+                ) { Text("Bejelentkezés", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
             }
         }
 
@@ -308,28 +258,21 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onNavigateToRegister: () -> Unit) {
                     try {
                         val provider = OAuthProvider.newBuilder("google.com")
                         provider.addCustomParameter("prompt", "select_account")
-                        
                         auth.startActivityForSignInWithProvider(activity, provider.build())
                             .addOnSuccessListener { onLoginSuccess() }
                             .addOnFailureListener { errorMessage = "Google bejelentkezés sikertelen: ${it.localizedMessage}" }
-                    } catch (e: Exception) {
-                        errorMessage = "Hiba: ${e.localizedMessage}"
-                    }
+                    } catch (e: Exception) { errorMessage = "Hiba: ${e.localizedMessage}" }
                 }
             },
-            modifier = Modifier.fillMaxWidth().height(50.dp),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, Color.DarkGray)
+            modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Color.DarkGray)
         ) {
-            Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.White)
+            Icon(Icons.Default.AccountCircle, null, tint = Color.White)
             Spacer(modifier = Modifier.width(12.dp))
             Text("Bejelentkezés Google-fiókkal", color = Color.White)
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-        TextButton(onClick = onNavigateToRegister) {
-            Text("Nincs fiókod? Regisztráció (Vault jelszóerősség)", color = Color(0xFF6B4EE6))
-        }
+        TextButton(onClick = onNavigateToRegister) { Text("Nincs fiókod? Regisztráció (Vault)", color = Color(0xFF6B4EE6)) }
 
         if (errorMessage.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
@@ -345,7 +288,13 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     val auth = FirebaseAuth.getInstance()
-    val view = LocalView.current
+
+    // Hang generátor a szintlépéshez (média hangerőn szól!)
+    val toneGen = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 100) }
+    
+    DisposableEffect(Unit) {
+        onDispose { toneGen.release() }
+    }
 
     var entropy by remember { mutableStateOf(0.0) }
     LaunchedEffect(password) {
@@ -372,10 +321,10 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     // Hangeffektus lejátszása szintlépéskor
     LaunchedEffect(tier) {
         if (entropy > 0) {
-            view.playSoundEffect(SoundEffectConstants.CLICK)
+            toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 35)
             if (tier == 4) {
-                delay(150) // Dupla kattanás a legerősebb szintnél
-                view.playSoundEffect(SoundEffectConstants.CLICK)
+                delay(120) // Dupla kattanás a legerősebb szintnél
+                toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 35)
             }
         }
     }
@@ -461,8 +410,8 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                     contentAlignment = Alignment.Center
                 ) {
                     when (tier) {
-                        0 -> AnimatedDoorIcon(entropy)
-                        1 -> AnimatedPaperclipIcon(entropy)
+                        0 -> AnimatedEmptyDoorIcon()
+                        1 -> AnimatedPaperclipHolesIcon(entropy)
                         2 -> AnimatedPadlockIcon(entropy)
                         3 -> AnimatedDeadboltIcon(entropy)
                         else -> BankVaultIcon(entropy)
@@ -510,74 +459,86 @@ fun VaultRegistrationScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
     }
 }
 
+// 0. szint: Csak az ajtókeret, nincs benne ajtó
 @Composable
-fun AnimatedDoorIcon(entropy: Double) {
-    val rotation by animateFloatAsState(
-        targetValue = (50f - (entropy * 25).toFloat()).coerceIn(0f, 50f),
-        animationSpec = tween(300),
-        label = "doorRotation"
-    )
+fun AnimatedEmptyDoorIcon() {
     Canvas(modifier = Modifier.size(44.dp)) {
         val w = size.width
         val h = size.height
         val strokeWidth = 3.dp.toPx()
         
-        drawRect(
-            color = Color.Gray,
-            topLeft = Offset(w * 0.2f, h * 0.1f),
-            size = Size(w * 0.6f, h * 0.8f),
-            style = Stroke(width = strokeWidth)
-        )
+        drawPath(Path().apply {
+            moveTo(w * 0.25f, h * 0.9f)
+            lineTo(w * 0.25f, h * 0.15f)
+            lineTo(w * 0.75f, h * 0.15f)
+            lineTo(w * 0.75f, h * 0.9f)
+        }, color = Color.Gray, style = Stroke(width = strokeWidth))
         
-        rotate(rotation, pivot = Offset(w * 0.2f, h * 0.5f)) {
-            drawRect(
-                color = Color(0xFF8D6E63),
-                topLeft = Offset(w * 0.2f, h * 0.1f),
-                size = Size(w * 0.6f, h * 0.8f)
-            )
-            drawCircle(
-                color = Color.Yellow,
-                radius = 2.5.dp.toPx(),
-                center = Offset(w * 0.7f, h * 0.5f)
-            )
-        }
+        drawLine(
+            color = Color.DarkGray,
+            start = Offset(w * 0.15f, h * 0.9f),
+            end = Offset(w * 0.85f, h * 0.9f),
+            strokeWidth = strokeWidth
+        )
     }
 }
 
+// 1. szint: Zárpánt 2 lyukkal és átfűzött gémkapoccsal
 @Composable
-fun AnimatedPaperclipIcon(entropy: Double) {
-    val twistAngle by animateFloatAsState(
-        targetValue = (entropy * 8).toFloat(),
-        animationSpec = tween(400),
-        label = "clipTwist"
+fun AnimatedPaperclipHolesIcon(entropy: Double) {
+    val wiggle by animateFloatAsState(
+        targetValue = if ((entropy * 10).toInt() % 2 == 0) 1.5f else -1.5f,
+        animationSpec = tween(150),
+        label = "wiggle"
     )
     Canvas(modifier = Modifier.size(44.dp)) {
         val w = size.width
         val h = size.height
-        val stroke = 3.dp.toPx()
-        rotate(twistAngle, pivot = Offset(w / 2, h / 2)) {
-            val path = Path().apply {
-                moveTo(w * 0.35f, h * 0.3f)
-                lineTo(w * 0.35f, h * 0.7f)
-                quadraticBezierTo(w * 0.35f, h * 0.85f, w * 0.5f, h * 0.85f)
-                quadraticBezierTo(w * 0.65f, h * 0.85f, w * 0.65f, h * 0.7f)
-                lineTo(w * 0.65f, h * 0.25f)
-                quadraticBezierTo(w * 0.65f, h * 0.15f, w * 0.5f, h * 0.15f)
-                quadraticBezierTo(w * 0.35f, h * 0.15f, w * 0.35f, h * 0.25f)
+        
+        // Zárpánt (két fémlemez)
+        drawRoundRect(
+            color = Color(0xFF424242),
+            topLeft = Offset(w * 0.15f, h * 0.35f),
+            size = Size(w * 0.3f, h * 0.3f),
+            cornerRadius = CornerRadius(2.dp.toPx())
+        )
+        drawRoundRect(
+            color = Color(0xFF424242),
+            topLeft = Offset(w * 0.55f, h * 0.35f),
+            size = Size(w * 0.3f, h * 0.3f),
+            cornerRadius = CornerRadius(2.dp.toPx())
+        )
+        
+        // A két lyuk
+        drawCircle(color = Color.Black, radius = 4.dp.toPx(), center = Offset(w * 0.35f, h * 0.5f))
+        drawCircle(color = Color.Black, radius = 4.dp.toPx(), center = Offset(w * 0.65f, h * 0.5f))
+        
+        // Gémkapocs átfűzve
+        withTransform({
+            translate(tx = wiggle, ty = wiggle)
+        }) {
+            val clipPath = Path().apply {
+                moveTo(w * 0.15f, h * 0.85f)
+                lineTo(w * 0.35f, h * 0.5f) // bemegy a bal lyukba
+                lineTo(w * 0.65f, h * 0.5f) // átmegy a jobb lyukba
+                lineTo(w * 0.75f, h * 0.75f)
+                quadraticBezierTo(w * 0.85f, h * 0.95f, w * 0.65f, h * 0.95f)
+                quadraticBezierTo(w * 0.5f, h * 0.95f, w * 0.55f, h * 0.75f)
             }
-            drawPath(path, color = Color(0xFFE57373), style = Stroke(width = stroke, cap = StrokeCap.Round))
+            drawPath(
+                path = clipPath,
+                color = Color(0xFFE57373),
+                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
         }
     }
 }
 
+// 2. szint: Lakat
 @Composable
 fun AnimatedPadlockIcon(entropy: Double) {
     val shackleTarget = if (entropy > 35) 0.dp else (-6).dp
-    val shackleOffsetDp by animateDpAsState(
-        targetValue = shackleTarget,
-        animationSpec = tween(300),
-        label = "shackle"
-    )
+    val shackleOffsetDp by animateDpAsState(targetValue = shackleTarget, animationSpec = tween(300), label = "shackle")
     Canvas(modifier = Modifier.size(44.dp)) {
         val w = size.width
         val h = size.height
@@ -591,56 +552,31 @@ fun AnimatedPadlockIcon(entropy: Double) {
             lineTo(w * 0.7f, h * 0.45f + shackleOffset)
         }
         drawPath(path, color = Color.LightGray, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
-        drawRoundRect(
-            color = Color(0xFFFFB74D),
-            topLeft = Offset(w * 0.2f, h * 0.45f),
-            size = Size(w * 0.6f, h * 0.45f),
-            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
-        )
+        drawRoundRect(color = Color(0xFFFFB74D), topLeft = Offset(w * 0.2f, h * 0.45f), size = Size(w * 0.6f, h * 0.45f), cornerRadius = CornerRadius(4.dp.toPx()))
         drawCircle(color = Color.Black, radius = 2.5.dp.toPx(), center = Offset(w * 0.5f, h * 0.65f))
     }
 }
 
+// 3. szint: Retesz
 @Composable
 fun AnimatedDeadboltIcon(entropy: Double) {
     val slideTargetDp = (((entropy - 50) / 20) * 10).toFloat().coerceIn(0f, 12f).dp
-    val slideOffsetDp by animateDpAsState(
-        targetValue = slideTargetDp,
-        animationSpec = tween(300),
-        label = "deadbolt"
-    )
+    val slideOffsetDp by animateDpAsState(targetValue = slideTargetDp, animationSpec = tween(300), label = "deadbolt")
     Canvas(modifier = Modifier.size(44.dp)) {
         val w = size.width
         val h = size.height
         val slideOffset = slideOffsetDp.toPx()
         
-        drawRoundRect(
-            color = Color(0xFFFFD54F),
-            topLeft = Offset(w * 0.1f, h * 0.2f),
-            size = Size(w * 0.55f, h * 0.6f),
-            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
-        )
-        drawRoundRect(
-            color = Color.DarkGray,
-            topLeft = Offset(w * 0.75f, h * 0.1f),
-            size = Size(w * 0.2f, h * 0.8f),
-            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
-        )
-        drawRect(
-            color = Color.LightGray,
-            topLeft = Offset(w * 0.2f + slideOffset, h * 0.4f),
-            size = Size(w * 0.5f, h * 0.2f)
-        )
+        drawRoundRect(color = Color(0xFFFFD54F), topLeft = Offset(w * 0.1f, h * 0.2f), size = Size(w * 0.55f, h * 0.6f), cornerRadius = CornerRadius(4.dp.toPx()))
+        drawRoundRect(color = Color.DarkGray, topLeft = Offset(w * 0.75f, h * 0.1f), size = Size(w * 0.2f, h * 0.8f), cornerRadius = CornerRadius(2.dp.toPx()))
+        drawRect(color = Color.LightGray, topLeft = Offset(w * 0.2f + slideOffset, h * 0.4f), size = Size(w * 0.5f, h * 0.2f))
     }
 }
 
+// 4. szint: Páncélterem ajtó
 @Composable
 fun BankVaultIcon(entropy: Double) {
-    val rotationAngle by animateFloatAsState(
-        targetValue = (entropy * 15).toFloat(),
-        animationSpec = tween(500),
-        label = "vaultRotation"
-    )
+    val rotationAngle by animateFloatAsState(targetValue = (entropy * 15).toFloat(), animationSpec = tween(500), label = "vaultRotation")
     Canvas(modifier = Modifier.size(44.dp)) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = size.width / 2.2f
@@ -651,13 +587,7 @@ fun BankVaultIcon(entropy: Double) {
         rotate(rotationAngle, center) {
             for (i in 0 until 6) {
                 val angle = i * (Math.PI / 3).toFloat()
-                drawLine(
-                    color = Color(0xFF80CBC4),
-                    start = center,
-                    end = Offset(center.x + radius * 0.75f * cos(angle), center.y + radius * 0.75f * sin(angle)),
-                    strokeWidth = 3.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
+                drawLine(color = Color(0xFF80CBC4), start = center, end = Offset(center.x + radius * 0.75f * cos(angle), center.y + radius * 0.75f * sin(angle)), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
             }
         }
     }
@@ -724,11 +654,14 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         
         coroutineScope.launch {
             var playUrl = ""
+            // Robosztusabb szerverlista, hogy biztosan elinduljon a zene!
             val pipedInstances = listOf(
                 "pipedapi.kavin.rocks", 
+                "pipedapi.tokhmi.xyz",
                 "api.piped.projectsegfau.lt", 
                 "pipedapi.smnz.de", 
-                "piped-api.lunar.icu"
+                "piped-api.lunar.icu",
+                "pipedapi.drgns.space"
             )
             for (instance in pipedInstances) {
                 try {
@@ -745,30 +678,6 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                 } catch (e: Exception) { continue }
             }
 
-            if (playUrl.isEmpty()) {
-                val invidiousInstances = listOf("invidious.nerdvpn.de", "invidious.jing.rocks", "inv.tux.pizza")
-                for (instance in invidiousInstances) {
-                    try {
-                        val req = Request.Builder().url("https://$instance/api/v1/videos/${song.audioUrl}").build()
-                        val res = withContext(Dispatchers.IO) { sharedHttpClient.newCall(req).execute() }
-                        if (res.isSuccessful) {
-                            val json = JSONObject(res.body?.string() ?: "")
-                            val formats = json.optJSONArray("adaptiveFormats")
-                            if (formats != null) {
-                                for (i in 0 until formats.length()) {
-                                    val format = formats.getJSONObject(i)
-                                    if (format.optString("type").startsWith("audio")) {
-                                        playUrl = format.optString("url")
-                                        break
-                                    }
-                                }
-                            }
-                        }
-                        if (playUrl.isNotEmpty()) break
-                    } catch (e: Exception) { continue }
-                }
-            }
-
             if (playUrl.isNotEmpty()) {
                 withContext(Dispatchers.Main) {
                     exoPlayer?.setMediaItem(MediaItem.fromUri(playUrl))
@@ -777,7 +686,7 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
                     currentLyrics = "Dalszöveg betöltése..."
                 }
             } else {
-                currentLyrics = "Hiba: A zenei stream szerverek jelenleg nem elérhetőek. Kérlek próbáld újra később."
+                currentLyrics = "Hiba: A zenei stream szerverek jelenleg túlterheltek. Kérlek próbáld újra egy perc múlva."
             }
 
             val lyrics = fetchLyrics(song.artist, song.title)
@@ -789,60 +698,33 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            label = { Text("Keresés (pl. Azahriah - 3 korty)...") },
-            trailingIcon = {
-                IconButton(onClick = { triggerSearch() }) {
-                    Icon(Icons.Default.Search, contentDescription = "Keresés indítása")
-                }
-            },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { triggerSearch() }),
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            value = query, onValueChange = { query = it }, label = { Text("Keresés (pl. Azahriah - 3 korty)...") },
+            trailingIcon = { IconButton(onClick = { triggerSearch() }) { Icon(Icons.Default.Search, "Keresés") } },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { triggerSearch() }),
+            modifier = Modifier.fillMaxWidth(), singleLine = true
         )
         
         if (aiStatus != null) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(aiStatus!!, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
         }
-        
         Spacer(modifier = Modifier.height(12.dp))
 
         if (activeSongIndex != null && searchResults.isNotEmpty()) {
             val song = searchResults[activeSongIndex!!]
-            Card(
-                modifier = Modifier.fillMaxWidth().wrapContentHeight().padding(bottom = 12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
+            Card(modifier = Modifier.fillMaxWidth().wrapContentHeight().padding(bottom = 12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text("Most szól: ${song.title}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, maxLines = 1)
                     Text(song.artist, fontSize = 12.sp, color = Color.Gray, maxLines = 1)
                     Spacer(modifier = Modifier.height(4.dp))
-
                     Slider(
-                        value = currentPosition,
-                        onValueChange = { newVal ->
-                            currentPosition = newVal
-                            exoPlayer?.seekTo(newVal.toLong())
-                        },
-                        valueRange = 0f..duration,
-                        modifier = Modifier.fillMaxWidth().height(20.dp)
+                        value = currentPosition, onValueChange = { newVal -> currentPosition = newVal; exoPlayer?.seekTo(newVal.toLong()) },
+                        valueRange = 0f..duration, modifier = Modifier.fillMaxWidth().height(20.dp)
                     )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = { if (exoPlayer?.isPlaying == true) exoPlayer.pause() else exoPlayer?.play() }) {
-                            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Lejátszás/Szünet", modifier = Modifier.size(36.dp))
-                        }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { if (exoPlayer?.isPlaying == true) exoPlayer.pause() else exoPlayer?.play() }) { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, modifier = Modifier.size(36.dp)) }
                         Spacer(modifier = Modifier.width(24.dp))
-                        IconButton(onClick = { playSongAndFetchLyrics((activeSongIndex!! + 1) % searchResults.size) }) {
-                            Icon(Icons.Default.SkipNext, contentDescription = "Következő", modifier = Modifier.size(36.dp))
-                        }
+                        IconButton(onClick = { playSongAndFetchLyrics((activeSongIndex!! + 1) % searchResults.size) }) { Icon(Icons.Default.SkipNext, null, modifier = Modifier.size(36.dp)) }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(modifier = Modifier.height(80.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
@@ -853,18 +735,14 @@ fun SearchScreen(exoPlayer: ExoPlayer?) {
         }
 
         if (isSearching) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(searchResults.indices.toList()) { index ->
                     val song = searchResults[index]
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { playSongAndFetchLyrics(index) }
-                    ) {
+                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { playSongAndFetchLyrics(index) }) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(32.dp))
+                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(32.dp))
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(song.title, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -965,10 +843,7 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
 
     Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Box(
-            modifier = Modifier
-                .size(130.dp)
-                .clip(CircleShape)
-                .background(if (isListening) Color.Red else MaterialTheme.colorScheme.primary)
+            modifier = Modifier.size(130.dp).clip(CircleShape).background(if (isListening) Color.Red else MaterialTheme.colorScheme.primary)
                 .clickable {
                     val permCheck = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
                     if (permCheck == PackageManager.PERMISSION_GRANTED) {
@@ -987,9 +862,7 @@ fun AudioRecognizerScreen(exoPlayer: ExoPlayer?) {
                                     recorder.setOutputFile(audioFile.absolutePath)
                                     recorder.prepare()
                                     recorder.start()
-                                    
                                     delay(6000)
-                                    
                                     recorder.stop()
                                     recorder.release()
                                     
